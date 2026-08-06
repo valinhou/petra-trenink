@@ -287,7 +287,7 @@
   <!-- ===== PLÁN (úprava) ===== -->
   <div id="view-plan" class="hidden">
     <div class="info-box">
-      ⚙️ <b>Nastavení aplikace</b> – tréninkové a volné dny, barvy, pauzy, připomínky a záloha dat. Samotné cviky upravíš přímo v tabu <b>Trénink</b> pomocí ikon 🔄 (vyměnit) a ✏️ (upravit) u každého cviku.
+      ⚙️ <b>Nastavení aplikace</b> – barvy, pauzy, připomínky a záloha dat. Dny si plánuješ přímo v tabu <b>Trénink</b>: prázdný den vyplníš šablonou 💪, poskládáš z knihovny ➕, nebo zapíšeš skupinovku 🤸.
     </div>
     <div id="planArea"></div>
   </div>
@@ -318,11 +318,10 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '4. 8. 2026 · v3'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '6. 8. 2026 · v4'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
-// Týdenní plán Po–Ne: každý den má svůj trénink (střídání partií), vše jde upravit přímo v Tréninku.
-const DEFAULT_PLAN = {
-  week: [
+// Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
+const DAY_TEMPLATES = [
     { name:'Nohy & hýždě', rest:false, exercises:[
       {id:'w0e0', grp:'legpress', name:'Leg press (tlak nohama)', machine:'Stroj leg press – chodidla na šíři ramen', sets:3, repLow:10, repHigh:12, rest:90, anim:'legpress'},
       {id:'w0e1', grp:'glute', name:'Hip thrust / most na hýždě', machine:'Záda opřená o lavici, činka/stroj přes boky', sets:3, repLow:10, repHigh:12, rest:90, anim:'hipthrust'},
@@ -379,8 +378,30 @@ const DEFAULT_PLAN = {
       {id:'w6e4', grp:'core', name:'Mrtvý brouk', machine:'Vleže – střídání protilehlých končetin', sets:3, repLow:10, repHigh:15, rest:45, anim:'plank'},
       {id:'w6e5', grp:'calf', name:'Výpony ze schodu', machine:'Paty pod úrovní schodu, plný rozsah', sets:3, repLow:15, repHigh:20, rest:45, anim:'calf'},
     ]},
-  ]
-};
+];
+
+// prázdný týden – cviky se doplní až na vyžádání (šablonou, z knihovny, nebo aktivitou)
+const DEFAULT_PLAN = { week: [0,1,2,3,4,5,6].map(()=>({name:'', rest:false, exercises:[]})) };
+
+// nabídka šablon pro tlačítko „Silový trénink podle šablony"
+const TEMPLATES = [
+  {label:'Nohy & hýždě', src:0},
+  {label:'Nohy & hýždě – varianta B', src:4},
+  {label:'Horní tělo', src:1},
+  {label:'Horní tělo – varianta B', src:5},
+  {label:'Hýždě & core', src:2},
+  {label:'Celé tělo', src:3},
+  {label:'Celé tělo – lehčí', src:6},
+];
+
+// skupinové a jiné aktivity
+const ACTIVITIES = [
+  {name:'Jumping', emoji:'🤸'},
+  {name:'Squash', emoji:'🎾'},
+  {name:'Mobilita a stabilita', emoji:'🧘'},
+  {name:'Jízda na kole', emoji:'🚴'},
+  {name:'Plavání', emoji:'🏊'},
+];
 
 const WEEKDAY_NAMES = ['Po','Út','St','Čt','Pá','So','Ne']; // index 0=Po ... 6=Ne
 function wdIdx(d){ return (d.getDay()+6)%7; }
@@ -432,6 +453,13 @@ function load(){
     s.varyOverride = {};
   }
   if(!s.plan || !s.plan.week) s.plan = JSON.parse(JSON.stringify(DEFAULT_PLAN));
+  // v2: dny jsou defaultně prázdné – plán se vyplňuje jen na vyžádání (historie zůstává)
+  if(!s.planV2){
+    s.plan = JSON.parse(JSON.stringify(DEFAULT_PLAN));
+    s.session = null;
+    s.varyOverride = {};
+    s.planV2 = true;
+  }
   return s;
 }
 
@@ -554,19 +582,20 @@ function renderWeek(){
     const d = new Date(sow); d.setDate(sow.getDate()+i);
     const iso = dateStr(d);
     const day = state.plan.week[i];
+    const rec = state.history.find(h=>h.date===iso);
+    const hasPlan = day.exercises.length>0;
     const isToday = iso===todayISO;
     const isSel = iso===selectedISO;
-    const didTrain = state.history.some(h=>h.date===iso);
     let cls='day-chip';
-    if(day.rest) cls+=' rest';
+    if(!hasPlan && !rec) cls+=' rest';
     if(isToday) cls+=' today';
     if(isSel) cls+=' active';
     const dateLabel = d.getDate()+'.'+(d.getMonth()+1)+'.';
     html+=`<div class="${cls}" onclick="selectDay('${iso}')">
       <div class="dn">${WEEKDAY_NAMES[i]}</div>
       <div class="dd">${dateLabel}</div>
-      <div class="di">${day.rest?'🌿':dayEmoji(day.name)}</div>
-      ${didTrain?'<div class="done-dot"></div>':''}
+      <div class="di">${rec&&rec.activity ? (rec.emoji||'🤸') : (hasPlan ? dayEmoji(day.name) : '–')}</div>
+      ${rec?'<div class="done-dot"></div>':''}
     </div>`;
   }
   strip.innerHTML = html;
@@ -586,8 +615,10 @@ function renderWeek(){
   if(wl) wl.innerHTML = `${lbl} <span style="color:var(--muted); font-weight:600;">· ${range}</span>`;
 
   // sub text
-  const cnt = state.plan.week.filter(d=>!d.rest).length;
-  document.getElementById('weekSub').textContent = `${cnt}× týdně · verze ${APP_VERSION}`;
+  const sowNow = startOfWeek(new Date());
+  const wkEnd = new Date(sowNow.getTime()+7*24*3600*1000);
+  const wkCnt = state.history.filter(h=>{ const d=new Date(h.date+'T00:00:00'); return d>=sowNow && d<wkEnd; }).length;
+  document.getElementById('weekSub').textContent = `Tento týden ${wkCnt}× · verze ${APP_VERSION}`;
 }
 
 function selectDay(iso){
@@ -597,15 +628,6 @@ function selectDay(iso){
   renderWorkout(selectedDayIdx);
 }
 
-// volný den: nabídka „půjčit si" trénink z jiného dne
-function borrowWorkout(wd){ selectedDayIdx = wd; renderWorkout(wd); }
-function toggleRestDay(wd, fromSettings){
-  state.plan.week[wd].rest = !state.plan.week[wd].rest;
-  state.session = null;
-  save(); renderWeek();
-  if(fromSettings) renderPlan();
-  else renderWorkout(wd);
-}
 function renameWeekDay(wd, txt){
   state.plan.week[wd].name = (txt||'').trim() || state.plan.week[wd].name;
   save(); renderWeek();
@@ -619,18 +641,26 @@ function renderWorkout(dayIdx){
   const day = state.plan.week[dayIdx];
   const dateInfo = selectedISO!==dateStr() ? ` <span style="color:var(--accent); font-weight:600;">(${fmtDate(selectedISO)})</span>` : '';
 
-  // volný den (a nedíváme se na "půjčený" trénink)
-  if(day.rest && wdFromISO(selectedISO)===dayIdx){
-    const seen = new Set();
-    const btns = state.plan.week.map((w,i)=>({w,i})).filter(x=>!x.w.rest)
-      .filter(x=>{ if(seen.has(x.w.name)) return false; seen.add(x.w.name); return true; })
-      .map(x=>`<button onclick="borrowWorkout(${x.i})">${dayEmoji(x.w.name)} ${x.w.name}</button>`).join('');
-    area.innerHTML = `<div class="card"><div class="empty">
-      🌿 <b style="color:var(--text)">${WEEKDAY_NAMES[dayIdx]} máš volno.</b>${dateInfo}<br>
-      Odpočinek je taky součást tréninku 💜 Chceš si přesto zacvičit?
-    </div>
-    ${btns?`<div class="day-picker" style="flex-wrap:wrap;">${btns}</div>`:''}
-    <button class="btn btn-ghost" onclick="toggleRestDay(${dayIdx})" style="margin-top:12px;">💪 Zrušit volno a naplánovat cviky</button></div>`;
+  // aktivity zapsané na vybraný den
+  const acts = state.history.filter(h=>h.date===selectedISO && h.activity);
+  const actsHtml = acts.length ? `<div class="card" style="padding:12px 16px;">${acts.map(a=>`
+    <div style="display:flex; align-items:center; gap:12px; padding:4px 0;">
+      <span style="font-size:26px;">${a.emoji||'🤸'}</span>
+      <div style="flex:1;"><b>${a.dayName}</b>${a.minutes?` · ${a.minutes} min`:''}
+      <div style="font-size:11px; color:var(--green);">✓ zapsaná aktivita</div></div>
+    </div>`).join('')}</div>` : '';
+
+  // prázdný den – vyplní se jen na vyžádání
+  if(!day.exercises.length){
+    area.innerHTML = actsHtml + `<div class="card">
+      <div class="empty" style="padding:22px 16px 14px;">
+        🌱 <b style="color:var(--text)">${WEEKDAY_NAMES[dayIdx]}${dateInfo} – zatím nic naplánováno.</b><br>
+        Vyber si, co dnes dáš:
+      </div>
+      <button class="btn btn-primary" onclick="openTemplates(${dayIdx})">💪 Silový trénink podle šablony</button>
+      <button class="btn btn-ghost" onclick="openSwap(${dayIdx},-1)">➕ Poskládat vlastní – cvik po cviku</button>
+      <button class="btn btn-ghost" onclick="openActivity()">🤸 Zapsat skupinovku / jinou aktivitu</button>
+    </div>`;
     return;
   }
 
@@ -638,7 +668,7 @@ function renderWorkout(dayIdx){
   const doneSets = session.exercises.reduce((a,e)=>a+e.sets.filter(s=>s.done).length,0);
   const totalSets = session.exercises.reduce((a,e)=>a+e.sets.length,0);
 
-  let html = `<div class="wk-head">
+  let html = actsHtml + `<div class="wk-head">
     <div style="flex:1; min-width:0;">
       <div class="t" contenteditable="true" onblur="renameWeekDay(${dayIdx}, this.textContent)" style="outline:none;">${day.name}</div>
       <div class="meta">${WEEKDAY_NAMES[dayIdx]}${dateInfo} · ${session.exercises.length} cviků · ${doneSets}/${totalSets} sérií</div>
@@ -647,7 +677,7 @@ function renderWorkout(dayIdx){
   <button class="btn btn-start" onclick="startFocus(${dayIdx})">▶️ Spustit trénink</button>
   <div style="display:flex; gap:8px;">
     <button class="btn btn-ghost" style="flex:1;" onclick="varyExercises()">🔀 Obměnit cviky</button>
-    <button class="btn btn-ghost" style="flex:1;" onclick="toggleRestDay(${dayIdx})">🌿 Nastavit volno</button>
+    <button class="btn btn-ghost" style="flex:1;" onclick="openActivity()">🤸 Aktivita</button>
   </div>`;
 
   session.exercises.forEach((ex,ei)=>{
@@ -694,7 +724,8 @@ function renderWorkout(dayIdx){
   });
 
   html += `<button class="small-add" onclick="openSwap(${dayIdx},-1)">+ Přidat cvik z knihovny</button>
-  <button class="btn btn-green" onclick="finishWorkout(${dayIdx})">✓ Uložit trénink</button>`;
+  <button class="btn btn-green" onclick="finishWorkout(${dayIdx})">✓ Uložit trénink</button>
+  <div class="del-link" onclick="clearDay(${dayIdx})" style="margin:10px 0 4px;">Vyprázdnit tento den</div>`;
   area.innerHTML = html;
 
   // otevři první nedokončený cvik
@@ -756,7 +787,7 @@ function finishWorkout(dayIdx){
       sets:e.sets.filter(s=>s.done).map(s=>({weight:s.weight, reps:s.reps, done:true}))
     })).filter(e=>e.sets.length)
   };
-  const existIdx = state.history.findIndex(h=>h.date===rec.date && h.dayIdx===rec.dayIdx);
+  const existIdx = state.history.findIndex(h=>h.date===rec.date && h.dayIdx===rec.dayIdx && !h.activity);
   if(existIdx>=0) state.history[existIdx]=rec; else state.history.push(rec);
   state.session = null;
   save();
@@ -804,7 +835,6 @@ function showFinishModal(newBadges, volume, newPRs){
   const q = QUOTES[Math.floor(Math.random()*QUOTES.length)];
   const sow = startOfWeek(new Date());
   const weekCount = state.history.filter(h=> new Date(h.date+'T00:00:00')>=sow).length;
-  const goal = state.plan.week.filter(d=>!d.rest).length || 1;
   const volHtml = volume>0 ? `<div style="font-size:14px; margin-top:10px; color:var(--text); font-weight:700;">🏋️ Celkem jsi zvedla <b style="color:var(--accent);">${volume} kg</b>${volumeFun(volume)}</div>` : '';
   const prHtml = (newPRs||[]).map(p=>`<div class="new-badge"><div class="nbi">🏆</div><div><b>Nový osobní rekord!</b><br><span style="font-size:12px; color:var(--muted);">${p.name} – ${p.kg} kg, tvoje nové maximum!</span></div></div>`).join('');
   const lymph = state.settings.lymphReminder ? `
@@ -815,7 +845,7 @@ function showFinishModal(newBadges, volume, newPRs){
       <div class="finish-emoji">🎉</div>
       <h3 style="margin:8px 0 2px;">Trénink hotový, Petro!</h3>
       <div class="finish-quote">${q}</div>
-      <div style="font-size:13px; color:var(--muted);">Tento týden: <b style="color:var(--accent);">${weekCount}/${goal}</b> tréninků · celkem <b style="color:var(--accent);">${state.history.length}</b></div>
+      <div style="font-size:13px; color:var(--muted);">Tento týden: <b style="color:var(--accent);">${weekCount}×</b> · celkem <b style="color:var(--accent);">${state.history.length}</b></div>
       ${volHtml}
       ${prHtml}
       ${badgesHtml}
@@ -926,7 +956,9 @@ function renderProgress(){
   let html='';
   for(let i=state.history.length-1;i>=0;i--){
     const h = state.history[i];
-    const exTxt = h.exercises.map(e=>{
+    const exTxt = h.activity
+      ? `${h.emoji||'🤸'} <b>Skupinovka / aktivita</b>${h.minutes?` – ${h.minutes} min`:''}`
+      : h.exercises.map(e=>{
       const best = e.sets.reduce((a,s)=> (parseFloat(s.weight)||0)>(parseFloat(a.weight)||0)?s:a, e.sets[0]);
       return `<b>${e.name}</b> – ${e.sets.length}× (nejvíc ${best.weight||'–'}kg×${best.reps||'–'})`;
     }).join('<br>');
@@ -1011,28 +1043,48 @@ function toggleBmiHidden(){
 }
 // graf vývoje tělesné váhy v čase
 function weightGraphSvg(weights){
-  if(!weights || weights.length<2){
-    return `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:12px;">📊 Zaznamenej aspoň 2 váhy a uvidíš graf vývoje v čase.</div>`;
+  if(!weights || !weights.length){
+    return `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:12px;">📊 Ulož svou první váhu a začne se ti kreslit graf progresu.</div>`;
   }
-  const W=300, H=120, padX=30, padTop=16, padBot=22;
+  const dShort = iso => { const d=new Date(iso+'T00:00:00'); return d.getDate()+'.'+(d.getMonth()+1)+'.'; };
+  if(weights.length===1){
+    return `<div style="text-align:center; margin-top:12px;">
+      <div style="display:inline-block; background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:10px 16px;">
+        <span style="font-size:18px;">📍</span> <b>${weights[0].kg} kg</b>
+        <span style="font-size:12px; color:var(--muted);"> · ${dShort(weights[0].date)}</span>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-top:8px;">První bod máš! Přidej další váhu a uvidíš křivku progresu 📈</div>
+    </div>`;
+  }
+  const W=320, H=150, padX=34, padTop=20, padBot=24;
   const kgs = weights.map(w=>w.kg);
   let min=Math.min(...kgs), max=Math.max(...kgs);
   if(min===max){ min-=1; max+=1; }
+  const span = max-min;
+  min -= span*0.1; max += span*0.1; // trochu vzduchu nad/pod křivkou
   const n = weights.length;
-  const X = i => padX + (n===1?0:(i*(W-2*padX)/(n-1)));
+  const X = i => padX + i*(W-padX-12)/(n-1);
   const Y = v => padTop + (H-padTop-padBot)*(1-(v-min)/(max-min));
   const line = weights.map((w,i)=>X(i)+','+Y(w.kg)).join(' ');
   const area = `${X(0)},${H-padBot} ${line} ${X(n-1)},${H-padBot}`;
+  // 3 vodicí čáry s hodnotami
+  const gridVals = [max-span*0.1, (max+min)/2, min+span*0.1].map(v=>Math.round(v*10)/10);
+  const grid = gridVals.map(v=>`
+    <line x1="${padX}" y1="${Y(v)}" x2="${W-12}" y2="${Y(v)}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,4"/>
+    <text x="2" y="${Y(v)+3}" font-size="10" fill="var(--muted)">${v}</text>`).join('');
   const dots = weights.map((w,i)=>`<circle cx="${X(i)}" cy="${Y(w.kg)}" r="3" fill="var(--accent)"/>`).join('');
-  const dShort = iso => { const d=new Date(iso+'T00:00:00'); return d.getDate()+'.'+(d.getMonth()+1)+'.'; };
+  const li = n-1;
+  const lastLabel = `
+    <circle cx="${X(li)}" cy="${Y(kgs[li])}" r="5.5" fill="var(--accent)" stroke="var(--bg2)" stroke-width="2"/>
+    <text x="${X(li)}" y="${Y(kgs[li])-10}" font-size="12" font-weight="800" fill="var(--text)" text-anchor="end">${kgs[li]} kg</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; margin-top:14px; overflow:visible;">
-    <polyline points="${area}" fill="var(--accent-soft)" opacity="0.55" stroke="none"/>
+    ${grid}
+    <polyline points="${area}" fill="var(--accent-soft)" opacity="0.5" stroke="none"/>
     <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}
-    <text x="2" y="${Y(max)+3}" font-size="10" fill="var(--muted)">${max}</text>
-    <text x="2" y="${Y(min)+3}" font-size="10" fill="var(--muted)">${min}</text>
+    ${lastLabel}
     <text x="${X(0)}" y="${H-6}" font-size="9" fill="var(--muted)" text-anchor="middle">${dShort(weights[0].date)}</text>
-    <text x="${X(n-1)}" y="${H-6}" font-size="9" fill="var(--muted)" text-anchor="middle">${dShort(weights[n-1].date)}</text>
+    <text x="${X(li)}" y="${H-6}" font-size="9" fill="var(--muted)" text-anchor="middle">${dShort(weights[li].date)}</text>
   </svg>`;
 }
 function setHeight(v){
@@ -1105,13 +1157,6 @@ function calcStreak(){
 function renderPlan(){
   const area = document.getElementById('planArea');
   let html='';
-  // tréninkové vs. volné dny
-  html += `<div class="card"><h2>📅 Tréninkové dny</h2>
-    <div style="display:flex; gap:6px; margin-top:10px;">
-    ${WEEKDAY_NAMES.map((n,i)=>`<div onclick="toggleRestDay(${i},true)" style="flex:1; text-align:center; padding:9px 0; border-radius:10px; cursor:pointer; font-weight:700; font-size:13px; ${!state.plan.week[i].rest?'background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;':'background:var(--card2); color:var(--muted);'}">${n}<div style="font-size:13px; margin-top:2px;">${state.plan.week[i].rest?'🌿':dayEmoji(state.plan.week[i].name)}</div></div>`).join('')}
-    </div>
-    <div style="font-size:12px; color:var(--muted); margin-top:8px;">Barevné dny cvičíš, šedé máš volno – klepnutím přepneš. Cviky jednotlivých dnů upravíš přímo v tabu „Trénink" (ikony 🔄 a ✏️ u cviku).</div>
-  </div>`;
 
   // ===== Nastavení =====
   html += `<div class="card"><h2>⚙️ Nastavení</h2>
@@ -1322,6 +1367,84 @@ function openSwap(wd, ei){
     </div>
   </div>`;
 }
+/* =========================================================
+   ŠABLONY, AKTIVITY, VYPRÁZDNĚNÍ DNE
+========================================================= */
+function openTemplates(wd){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
+    <h3>💪 Vyber šablonu tréninku</h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:6px;">Předvyplní den cviky – všechno pak můžeš vyměnit (🔄), upravit (✏️) nebo odebrat (🗑️).</div>
+    ${TEMPLATES.map((t,ti)=>{ const d=DAY_TEMPLATES[t.src];
+      const grps = d.exercises.map(e=>GRP_LABELS[e.grp]||'').filter((v,i,a)=>v && a.indexOf(v)===i).slice(0,4).join(', ');
+      return `<div onclick="applyTemplate(${wd},${ti})" style="padding:12px 4px; border-top:1px solid var(--line); cursor:pointer; display:flex; align-items:center; gap:12px;">
+      <span style="font-size:24px;">${dayEmoji(t.label)}</span>
+      <div style="flex:1;"><div style="font-weight:700;">${t.label}</div>
+      <div style="font-size:12px; color:var(--muted);">${d.exercises.length} cviků · ${grps}</div></div>
+      <div style="color:var(--accent); font-weight:800;">＋</div></div>`; }).join('')}
+    <div class="sheet-actions"><button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zavřít</button></div>
+  </div></div>`;
+}
+function applyTemplate(wd, ti){
+  const t = TEMPLATES[ti], d = DAY_TEMPLATES[t.src];
+  state.plan.week[wd] = { name: t.label, rest:false,
+    exercises: d.exercises.map((e,i)=>Object.assign(JSON.parse(JSON.stringify(e)), {id:'t'+wd+'_'+ti+'_'+i})) };
+  state.session = null;
+  save(); closeModal(); renderWeek(); renderWorkout(wd);
+  toast('Trénink naplánován 💪');
+}
+function clearDay(wd){
+  if(confirm('Vyprázdnit tento den? Naplánované cviky se odeberou (historie zůstává).')){
+    state.plan.week[wd] = {name:'', rest:false, exercises:[]};
+    state.session = null;
+    save(); renderWeek(); renderWorkout(wd);
+    toast('Den vyprázdněn 🌱');
+  }
+}
+function openActivity(){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
+    <h3>🤸 Skupinovka / jiná aktivita</h3>
+    <div class="field"><label>Délka (minuty)</label><input id="act_min" type="number" inputmode="numeric" value="60"></div>
+    ${ACTIVITIES.map((a,ai)=>`<div onclick="logActivity(${ai})" style="padding:12px 4px; border-top:1px solid var(--line); cursor:pointer; display:flex; align-items:center; gap:12px;">
+      <span style="font-size:24px;">${a.emoji}</span><div style="flex:1; font-weight:700;">${a.name}</div><div style="color:var(--accent); font-weight:800;">✓</div></div>`).join('')}
+    <div onclick="logActivity(-1)" style="padding:12px 4px; border-top:1px solid var(--line); cursor:pointer; display:flex; align-items:center; gap:12px;">
+      <span style="font-size:24px;">✍️</span><div style="flex:1; font-weight:700;">Jiná aktivita (napíšu si)</div><div style="color:var(--accent); font-weight:800;">✓</div></div>
+    <div class="sheet-actions"><button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zavřít</button></div>
+  </div></div>`;
+}
+function logActivity(ai){
+  let name, emoji;
+  if(ai<0){
+    name = (prompt('Jaká aktivita?')||'').trim();
+    if(!name) return;
+    emoji = '🏃‍♀️';
+  } else { name = ACTIVITIES[ai].name; emoji = ACTIVITIES[ai].emoji; }
+  const minEl = document.getElementById('act_min');
+  const mins = minEl ? (parseInt(minEl.value)||null) : null;
+  const iso = selectedISO || dateStr();
+  const prevCount = state.history.length;
+  state.history.push({date:iso, dayIdx:wdFromISO(iso), dayName:name, activity:true, emoji, minutes:mins, exercises:[]});
+  save(); closeModal(); renderWeek(); renderWorkout(selectedDayIdx);
+  const newBadges = BADGES.filter(b=>b.n>prevCount && b.n<=state.history.length);
+  showActivityDone(name, emoji, mins, newBadges);
+}
+function showActivityDone(name, emoji, mins, newBadges){
+  const q = QUOTES[Math.floor(Math.random()*QUOTES.length)];
+  const badgesHtml = (newBadges||[]).map(b=>`<div class="new-badge"><div class="nbi">${b.icon}</div><div><b>Nový odznak: ${b.t}</b><br><span style="font-size:12px; color:var(--muted);">${b.d}</span></div></div>`).join('');
+  const lymph = state.settings.lymphReminder ? `<div class="lymph-reminder"><div class="le">🩳</div><div>Po cvičení si nezapomeň dát <b>lymfatické kalhoty</b>!</div></div>` : '';
+  document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()">
+    <div class="sheet finish-card">
+      <div class="finish-emoji">${emoji}</div>
+      <h3 style="margin:8px 0 2px;">${name} – zapsáno!</h3>
+      ${mins?`<div style="font-size:13px; color:var(--muted);">${mins} minut pohybu ✓</div>`:''}
+      <div class="finish-quote">${q}</div>
+      ${badgesHtml}${lymph}
+      <div class="sheet-actions"><button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="closeModal()">Super 🎉</button></div>
+    </div></div>`;
+  if(navigator.vibrate) navigator.vibrate([120,60,120]);
+}
+
 function removeExercise(wd, ei){
   const ex = state.plan.week[wd].exercises[ei];
   if(confirm('Odebrat cvik „'+ex.name+'" z tohoto tréninkového dne?')){
@@ -1415,7 +1538,7 @@ function checkEveningReminder(){
   const s = state.settings;
   if(!s.eveningReminder) return;
   const now = new Date();
-  const scheduled = !state.plan.week[wdIdx(now)].rest;
+  const scheduled = state.plan.week[wdIdx(now)].exercises.length>0;
   const trainedToday = state.history.some(h=>h.date===dateStr());
   if(!scheduled && !trainedToday) return; // dnes není den cvičení
   const parts = (s.eveningTime||'19:00').split(':');
@@ -1647,7 +1770,7 @@ let focus = {dayIdx:null, exIdx:0, setIdx:0, active:false};
 
 function startFocus(dayIdx){
   if(dayIdx===null||dayIdx===undefined) dayIdx = (selectedDayIdx!=null?selectedDayIdx:wdFromISO(dateStr()));
-  if(dayIdx===null) return;
+  if(dayIdx===null || !state.plan.week[dayIdx].exercises.length) return;
   ensureSession(dayIdx); audio();
   let ei = state.session.exercises.findIndex(e=>!e.sets.every(s=>s.done));
   if(ei<0) ei=0;
