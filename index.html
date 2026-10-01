@@ -388,7 +388,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '1. 10. 2026 · v6'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '1. 10. 2026 · v7'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -541,6 +541,7 @@ function load(){
   ], log: {} };
   // motivace
   if(!s.careBadgesSeen) s.careBadgesSeen = [];
+  if(!s.wlSeen) s.wlSeen = []; // dosažené milníky hubnutí
   return s;
 }
 
@@ -1116,8 +1117,32 @@ function renderBmiCard(){
       <button onclick="logWeight()" style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border:none; border-radius:11px; padding:11px 16px; font-weight:700; cursor:pointer; white-space:nowrap;">Uložit</button>
     </div>
     ${bmiHtml}
+    ${wlSectionHtml()}
     ${weightGraphSvg(p.weights)}
     ${trend}`;
+}
+// sekce „Cíl hubnutí" uvnitř karty váhy
+function wlSectionHtml(){
+  const wl = wlInfo();
+  if(!wl){
+    return `<button onclick="setGoalWeight()" style="display:block; width:100%; margin-top:14px; background:var(--card2); border:1px dashed var(--accent); color:var(--accent); border-radius:12px; padding:12px; font-weight:700; cursor:pointer;">🎯 Nastavit cílovou váhu a hubnout s motivací</button>`;
+  }
+  const kostky = Math.round(Math.max(wl.lost,0)*4);
+  const pred = wlPrediction();
+  const chips = WL_MILESTONES.map(m=>`<span style="opacity:${wl.lost>=m[0]?'1':'.3'}; font-size:12px; font-weight:700; background:var(--card); border-radius:12px; padding:4px 8px; white-space:nowrap;">${m[1]} −${m[0]} kg</span>`).join(' ');
+  return `<div style="margin-top:14px; background:var(--card2); border-radius:14px; padding:13px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-weight:800;">🎯 Cíl: ${wl.goal} kg <span onclick="setGoalWeight()" style="color:var(--muted); cursor:pointer; font-size:13px;">✏️</span></div>
+      <div style="font-size:13px; font-weight:800; color:${wl.done?'var(--green)':'var(--accent)'};">${wl.done?'DOSAŽENO 🏆':'zbývá '+wl.toGo+' kg'}</div>
+    </div>
+    <div class="kcal-bar" style="margin-top:10px;"><div class="fill" style="width:${wl.pct}%; background:linear-gradient(90deg,var(--accent2),var(--green));"></div></div>
+    <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px;">
+      <span>start ${wl.start} kg</span><span><b style="color:var(--text);">${wl.pct} %</b></span><span>cíl ${wl.goal} kg</span>
+    </div>
+    ${wl.lost>0?`<div style="font-size:13px; margin-top:10px;">📉 Zhubnuto <b style="color:var(--green);">${wl.lost} kg</b>${kostky>0?` – to je jako <b>${kostky}× kostka másla</b> 🧈`:''}</div>`:`<div style="font-size:12px; color:var(--muted); margin-top:10px;">Každé zapsané kilo dolů = oslava + 50 bodů. Jdeme na to! 💜</div>`}
+    ${pred?`<div style="font-size:12px; color:var(--muted); margin-top:6px;">📅 Tímhle tempem dosáhneš cíle kolem <b style="color:var(--text);">${pred}</b> <span style="opacity:.7;">(orientačně)</span></div>`:''}
+    <div style="display:flex; gap:5px; flex-wrap:wrap; margin-top:10px;">${chips}</div>
+  </div>`;
 }
 function toggleBmiHidden(){
   state.settings.bmiHidden = !state.settings.bmiHidden;
@@ -1141,6 +1166,8 @@ function weightGraphSvg(weights){
   const W=320, H=150, padX=34, padTop=20, padBot=24;
   const kgs = weights.map(w=>w.kg);
   let min=Math.min(...kgs), max=Math.max(...kgs);
+  const goalW = state.profile.goalWeight;
+  if(goalW){ min=Math.min(min,goalW); max=Math.max(max,goalW); }
   if(min===max){ min-=1; max+=1; }
   const span = max-min;
   min -= span*0.1; max += span*0.1; // trochu vzduchu nad/pod křivkou
@@ -1159,8 +1186,12 @@ function weightGraphSvg(weights){
   const lastLabel = `
     <circle cx="${X(li)}" cy="${Y(kgs[li])}" r="5.5" fill="var(--accent)" stroke="var(--bg2)" stroke-width="2"/>
     <text x="${X(li)}" y="${Y(kgs[li])-10}" font-size="12" font-weight="800" fill="var(--text)" text-anchor="end">${kgs[li]} kg</text>`;
+  const goalLine = goalW ? `
+    <line x1="${padX}" y1="${Y(goalW)}" x2="${W-12}" y2="${Y(goalW)}" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <text x="${W-12}" y="${Y(goalW)-4}" font-size="10" font-weight="700" fill="var(--green)" text-anchor="end">🎯 ${goalW}</text>` : '';
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; margin-top:14px; overflow:visible;">
     ${grid}
+    ${goalLine}
     <polyline points="${area}" fill="var(--accent-soft)" opacity="0.5" stroke="none"/>
     <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}
@@ -1180,9 +1211,18 @@ function logWeight(){
   if(isNaN(n)||n<=0){ toast('Zadej platnou váhu'); return; }
   const today = dateStr();
   const arr = state.profile.weights;
-  if(arr.length && arr[arr.length-1].date===today) arr[arr.length-1].kg = n;
+  const prevW = arr.length ? arr[arr.length-1].kg : null;
+  const samedayEdit = arr.length && arr[arr.length-1].date===today;
+  const refW = samedayEdit && arr.length>=2 ? arr[arr.length-2].kg : (samedayEdit ? null : prevW);
+  if(samedayEdit) arr[arr.length-1].kg = n;
   else arr.push({date:today, kg:n});
-  save(); renderBmiCard(); toast('Váha uložena ⚖️');
+  save(); renderBmiCard();
+  // povzbuzení podle vývoje (nikdy nekáráme)
+  if(refW!=null && n<refW) toast(`📉 −${Math.round((refW-n)*10)/10} kg od minula! Skvělá práce!`);
+  else if(refW!=null && n>refW) toast('Váha kolísá, to je normální – důležitý je trend 💜');
+  else toast('Váha uložena ⚖️');
+  checkWlMilestones();
+  checkLevelUp();
 }
 function clearWeights(){
   if(confirm('Vymazat historii tělesné váhy?')){
@@ -2407,7 +2447,7 @@ function renderDay(){
       <div style="font-size:12px; color:var(--accent); font-weight:800;">${lpct} %</div>
     </div>
     <div class="lvl-bar"><div class="fill" style="width:${lpct}%;"></div></div>
-    <div style="font-size:11px; color:var(--muted); margin-top:8px;">Body: návyk +10 · zapsané jídlo +10 · den v kcal cíli +20 · trénink +30 · perfektní den +25</div>`;
+    <div style="font-size:11px; color:var(--muted); margin-top:8px;">Body: návyk +10 · jídlo +10 · den v kcal cíli +20 · trénink +30 · perfektní den +25 · kilo dolů +50</div>`;
 
   // ===== zahrádka =====
   const ps = perfectStreak(), pt = perfectTotal();
@@ -2499,6 +2539,9 @@ function calcXP(){
     if(items.length>=3 && tot<=(state.food.goal||1800)) xp += 20;
   });
   xp += state.history.length*30;
+  // hubnutí: +50 za každé celé kilo dolů od startu
+  const wl = wlInfo();
+  if(wl && wl.lost>0) xp += Math.floor(wl.lost)*50;
   return xp;
 }
 function levelInfo(xp){
@@ -2573,6 +2616,84 @@ function confettiBurst(){
     setTimeout(()=>{ try{s.remove();}catch(e){} }, 2800);
   }
 }
+/* =========================================================
+   MOTIVACE K HUBNUTÍ – cílová váha, milníky, predikce
+========================================================= */
+const WL_MILESTONES = [[1,'🎈'],[2,'🧈'],[3,'🏃‍♀️'],[5,'🌟'],[7.5,'💎'],[10,'👑']];
+function wlInfo(){
+  const p = state.profile;
+  if(!p.goalWeight || !p.weights.length) return null;
+  const start = p.startWeight || p.weights[0].kg;
+  const cur = p.weights[p.weights.length-1].kg;
+  const lost = Math.round((start-cur)*10)/10;
+  const toGo = Math.round((cur-p.goalWeight)*10)/10;
+  const total = Math.round((start-p.goalWeight)*10)/10;
+  const pct = total>0 ? Math.max(0, Math.min(100, Math.round(lost/total*100))) : 0;
+  return {start, cur, goal:p.goalWeight, lost, toGo, total, pct, done: cur<=p.goalWeight};
+}
+function setGoalWeight(){
+  const p = state.profile;
+  const v = prompt('Cílová váha v kg (prázdné = zrušit cíl):', p.goalWeight||'');
+  if(v===null) return;
+  const t = (''+v).trim();
+  if(t===''){ delete p.goalWeight; delete p.startWeight; state.wlSeen=[]; save(); renderBmiCard(); toast('Cíl hubnutí zrušen'); return; }
+  const n = parseFloat(t.replace(',','.'));
+  if(isNaN(n)||n<=0){ toast('Zadej platnou váhu'); return; }
+  if(p.height && n/Math.pow(p.height/100,2) < 18.5){
+    if(!confirm('Pozor: tahle cílová váha je pod zdravou hranicí BMI 18,5. Opravdu nastavit?')) return;
+  }
+  p.goalWeight = n;
+  if(!p.startWeight && p.weights.length) p.startWeight = p.weights[p.weights.length-1].kg;
+  save(); renderBmiCard();
+  toast('Cíl nastaven: '+n+' kg 🎯');
+}
+// orientační odhad, kdy dosáhne cíle (z trendu posledních záznamů)
+function wlPrediction(){
+  const p = state.profile, wl = wlInfo();
+  if(!wl || wl.done || p.weights.length<3) return null;
+  const win = p.weights.slice(-5);
+  const d0 = new Date(win[0].date+'T00:00:00'), d1 = new Date(win[win.length-1].date+'T00:00:00');
+  const days = (d1-d0)/(24*3600*1000);
+  if(days<=0) return null;
+  const slope = (win[win.length-1].kg - win[0].kg)/days; // kg/den
+  if(slope>=0) return null; // zrovna neklesá – nic nepredikujeme
+  const daysTo = Math.round((wl.cur-wl.goal)/(-slope));
+  if(daysTo>400) return null;
+  const target = new Date(); target.setDate(target.getDate()+daysTo);
+  return target.getDate()+'. '+(target.getMonth()+1)+'. '+target.getFullYear();
+}
+function checkWlMilestones(){
+  const wl = wlInfo();
+  if(!wl) return;
+  if(!state.wlSeen) state.wlSeen = [];
+  if(wl.done && !state.wlSeen.includes('goal')){
+    state.wlSeen.push('goal'); save(); confettiBurst();
+    document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()">
+      <div class="sheet finish-card">
+        <div class="finish-emoji">🏆</div>
+        <h3 style="margin:8px 0;">CÍL DOSAŽEN!</h3>
+        <div class="finish-quote">${wl.start} kg → ${wl.cur} kg. Dokázala jsi to, Petro! Jsi neuvěřitelná. 👑</div>
+        <div class="sheet-actions"><button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="closeModal()">JSEM! 🎉</button></div>
+      </div></div>`;
+    if(navigator.vibrate) navigator.vibrate([150,80,150,80,300]);
+    return;
+  }
+  const hit = WL_MILESTONES.filter(m=>wl.lost>=m[0] && !state.wlSeen.includes(m[0]));
+  if(hit.length){
+    hit.forEach(m=>state.wlSeen.push(m[0])); save(); confettiBurst();
+    const top = hit[hit.length-1];
+    const kostky = Math.round(wl.lost*4);
+    document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()">
+      <div class="sheet finish-card">
+        <div class="finish-emoji">${top[1]}</div>
+        <h3 style="margin:8px 0;">Minus ${top[0]} kg!</h3>
+        <div class="finish-quote">Celkem dole <b>${wl.lost} kg</b> – to je jako ${kostky}× kostka másla! 🧈<br><span style="font-size:13px; color:var(--muted); font-weight:500;">Do cíle zbývá ${wl.toGo} kg. Jde ti to skvěle! +50 b za každé kilo</span></div>
+        <div class="sheet-actions"><button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="closeModal()">Jedu dál 💪</button></div>
+      </div></div>`;
+    if(navigator.vibrate) navigator.vibrate([120,60,120,60,240]);
+  }
+}
+
 function showPerfectDay(){
   confettiBurst();
   const ps = perfectStreak();
