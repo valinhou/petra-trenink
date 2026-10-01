@@ -237,6 +237,27 @@
   .switch.on{background:var(--green); border-color:var(--green);}
   .switch .knob{position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; transition:.15s;}
   .switch.on .knob{left:25px;}
+
+  /* ===== Jídlo ===== */
+  .kcal-big{font-size:38px; font-weight:800; line-height:1;}
+  .kcal-bar{height:10px; background:var(--card2); border-radius:6px; overflow:hidden; margin-top:12px;}
+  .kcal-bar .fill{height:100%; border-radius:6px; transition:width .3s;}
+  .meal-chips{display:flex; gap:6px; margin:10px 0 10px; flex-wrap:wrap;}
+  .meal-chips button{flex:1; min-width:68px; background:var(--card2); border:1px solid var(--line); color:var(--muted); border-radius:16px; padding:8px 4px; font-size:12px; font-weight:700; cursor:pointer;}
+  .meal-chips button.on{background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border-color:transparent;}
+  .food-sug{max-height:230px; overflow-y:auto; border:1px solid var(--line); border-radius:12px; margin-top:8px; background:var(--bg2);}
+  .food-sug div{padding:10px 12px; border-top:1px solid var(--line); cursor:pointer; display:flex; justify-content:space-between; gap:8px; font-size:14px;}
+  .food-sug div:first-child{border-top:none;}
+  .food-item{display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--line); font-size:14px;}
+
+  /* ===== Návyky (Den) ===== */
+  .habit{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 14px; margin:10px 0; display:flex; align-items:center; gap:12px; box-shadow:var(--shadow);}
+  .habit .hemoji{font-size:26px; flex:0 0 auto;}
+  .habit .hdots{display:flex; gap:4px; margin-top:6px;}
+  .habit .hdots span{width:9px; height:9px; border-radius:50%; background:var(--card2); border:1px solid var(--line);}
+  .habit .hdots span.on{background:var(--green); border-color:var(--green);}
+  .habit .hchk{width:46px; height:46px; border-radius:14px; border:2px solid var(--line); background:var(--bg2); display:flex; align-items:center; justify-content:center; font-size:22px; color:transparent; cursor:pointer; flex:0 0 auto; transition:.12s;}
+  .habit .hchk.on{background:var(--green); border-color:var(--green); color:#06281e;}
 </style>
 </head>
 <body>
@@ -284,6 +305,42 @@
     <div id="histList"></div>
   </div>
 
+  <!-- ===== JÍDLO ===== -->
+  <div id="view-food" class="hidden">
+    <div class="week-nav">
+      <button onclick="foodNav(-1)">‹</button>
+      <div class="wlabel" id="foodDateLbl"></div>
+      <button id="foodNext" onclick="foodNav(1)">›</button>
+    </div>
+    <div class="card" id="foodSummary"></div>
+    <div class="card">
+      <h2>➕ Zapsat jídlo</h2>
+      <div class="meal-chips" id="mealChips"></div>
+      <input id="fq" placeholder="Hledej jídlo… (např. rohlík, jogurt)" oninput="foodSug()" style="width:100%; background:var(--bg2); border:1px solid var(--line); border-radius:11px; color:var(--text); font-size:15px; padding:11px;">
+      <div class="food-sug hidden" id="fsug"></div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <input id="fname" placeholder="Název" style="flex:2; min-width:0; background:var(--bg2); border:1px solid var(--line); border-radius:11px; color:var(--text); font-size:15px; padding:11px;">
+        <input id="fkcal" type="number" inputmode="numeric" placeholder="kcal" style="flex:1; min-width:0; background:var(--bg2); border:1px solid var(--line); border-radius:11px; color:var(--text); font-size:15px; padding:11px; text-align:center;">
+        <button onclick="addFood()" style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border:none; border-radius:11px; padding:0 18px; font-weight:800; font-size:20px; cursor:pointer;">＋</button>
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:8px;">Tip: vyfoť jídlo a pošli Claudovi v mobilu („odhadni kalorie z fotky") – číslo pak zapiš sem.</div>
+    </div>
+    <div id="foodList"></div>
+    <div class="card" id="foodWeek"></div>
+  </div>
+
+  <!-- ===== DEN (péče o sebe) ===== -->
+  <div id="view-day" class="hidden">
+    <div class="stat-row">
+      <div class="stat"><div class="num" id="dayDone">0/0</div><div class="lbl">Dnes splněno</div></div>
+      <div class="stat"><div class="num" id="dayStreak">0</div><div class="lbl">Série dní</div></div>
+      <div class="stat"><div class="num" id="dayPerfect">0</div><div class="lbl">Perfektní dny</div></div>
+    </div>
+    <div class="card" id="dayAuto"></div>
+    <div id="habitList"></div>
+    <button class="small-add" onclick="editHabit(-1)">+ Přidat návyk</button>
+  </div>
+
   <!-- ===== PLÁN (úprava) ===== -->
   <div id="view-plan" class="hidden">
     <div class="info-box">
@@ -306,6 +363,8 @@
 <!-- Bottom nav -->
 <div class="nav">
   <button class="active" data-view="train" onclick="switchView('train')"><span class="ic">🏋️</span>Trénink</button>
+  <button data-view="food" onclick="switchView('food')"><span class="ic">🍽️</span>Jídlo</button>
+  <button data-view="day" onclick="switchView('day')"><span class="ic">🌸</span>Den</button>
   <button data-view="progress" onclick="switchView('progress')"><span class="ic">📈</span>Progres</button>
   <button data-view="plan" onclick="switchView('plan')"><span class="ic">⚙️</span>Nastavení</button>
 </div>
@@ -318,7 +377,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '6. 8. 2026 · v4'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '1. 10. 2026 · v5'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -460,6 +519,15 @@ function load(){
     s.varyOverride = {};
     s.planV2 = true;
   }
+  // deníček jídla
+  if(!s.food) s.food = { goal: 1800, log: {} };
+  // návyky péče o sebe
+  if(!s.habits) s.habits = { list: [
+    {id:'hb1', emoji:'💊', name:'Vitamíny'},
+    {id:'hb2', emoji:'🧴', name:'Krémy / kosmetika'},
+    {id:'hb3', emoji:'🩳', name:'Lymfodrenáž'},
+    {id:'hb4', emoji:'📖', name:'Četba'},
+  ], log: {} };
   return s;
 }
 
@@ -1541,6 +1609,9 @@ function checkEveningReminder(){
   const scheduled = state.plan.week[wdIdx(now)].exercises.length>0;
   const trainedToday = state.history.some(h=>h.date===dateStr());
   if(!scheduled && !trainedToday) return; // dnes není den cvičení
+  // lymfodrenáž už je dnes odškrtnutá v návycích -> připomínka není potřeba
+  const lymphHabit = (state.habits&&state.habits.list||[]).find(h=>h.name.toLowerCase().includes('lymf'));
+  if(lymphHabit && habitDone(lymphHabit.id, dateStr())) return;
   const parts = (s.eveningTime||'19:00').split(':');
   let hh = parseInt(parts[0],10); if(isNaN(hh)) hh=19;
   let mm = parseInt(parts[1],10); if(isNaN(mm)) mm=0;
@@ -1580,12 +1651,14 @@ function enableNotif(){
    NAVIGACE
 ========================================================= */
 function switchView(v){
-  ['train','progress','plan'].forEach(x=>{
+  ['train','food','day','progress','plan'].forEach(x=>{
     document.getElementById('view-'+x).classList.toggle('hidden', x!==v);
   });
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
   if(v==='progress') renderProgress();
   if(v==='plan') renderPlan();
+  if(v==='food') renderFood();
+  if(v==='day') renderDay();
   if(v==='train'){ renderWeek(); renderWorkout(selectedDayIdx); }
 }
 
@@ -2086,6 +2159,251 @@ function initSwipe(){
     if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)) shiftWeek(dx<0?1:-1);
     x0=null;
   }, {passive:true});
+}
+
+/* =========================================================
+   JÍDLO – deníček kalorií
+========================================================= */
+const MEALS = ['Snídaně','Svačina','Oběd','Večeře'];
+const FOOD_DB = [
+  // pečivo & snídaně
+  ['Rohlík (1 ks)',150],['Houska (1 ks)',160],['Chléb (1 krajíc)',110],['Toustový chléb (1 plátek)',80],
+  ['Bageta pečivo (1 ks)',320],['Croissant (1 ks)',230],['Ovesná kaše (porce)',300],['Müsli s jogurtem (miska)',320],
+  ['Lívance (3 ks)',380],['Palačinka s džemem (1 ks)',180],['Vejce vařené (1 ks)',78],['Míchaná vejce (2 ks)',200],
+  ['Omeleta (2 vejce)',250],['Jogurt bílý (150 g)',90],['Jogurt ovocný (150 g)',140],['Skyr (140 g)',90],
+  ['Tvaroh polotučný (100 g)',90],['Cottage sýr (150 g)',150],
+  // mléčné & uzeniny
+  ['Mléko polotučné (250 ml)',115],['Eidam 30 % (50 g)',125],['Mozzarella (60 g)',150],['Máslo (10 g)',74],
+  ['Šunka kuřecí (50 g)',55],['Salám (50 g)',150],['Vajíčková pomazánka (50 g)',130],
+  // ovoce & zelenina
+  ['Banán (1 ks)',105],['Jablko (1 ks)',80],['Hruška (1 ks)',100],['Pomeranč (1 ks)',70],['Mandarinka (1 ks)',40],
+  ['Kiwi (1 ks)',45],['Jahody (100 g)',35],['Borůvky (100 g)',57],['Hroznové víno (100 g)',70],['Avokádo (půlka)',160],
+  ['Rajče (1 ks)',25],['Okurka (půlka)',10],['Paprika (1 ks)',30],['Mrkev (1 ks)',30],['Zeleninový salát (miska)',60],
+  // hlavní jídla
+  ['Kuřecí prsa grilovaná (150 g)',165],['Kuřecí řízek smažený (150 g)',330],['Vepřový řízek smažený (150 g)',400],
+  ['Hovězí guláš bez přílohy (porce)',350],['Svíčková s knedlíky (porce)',650],['Guláš s knedlíky (porce)',700],
+  ['Rajská s těstovinami (porce)',550],['Koprovka s bramborem (porce)',500],['Smažený sýr s hranolky (porce)',850],
+  ['Kuře na paprice s těstovinami (porce)',600],['Špagety boloňské (porce)',550],['Špagety aglio olio (porce)',450],
+  ['Lasagne (porce)',600],['Rizoto s kuřecím (porce)',500],['Kuskus se zeleninou (porce)',400],
+  ['Losos pečený (150 g)',310],['Treska (150 g)',130],['Tuňák konzerva (1 ks)',120],
+  ['Pizza Margherita (celá)',800],['Pizza šunková (celá)',900],['Hamburger (1 ks)',500],['Kebab v tortille (1 ks)',600],
+  ['Sushi (8 ks)',350],['Čína s rýží (porce)',550],['Buchtičky s krémem (porce)',550],
+  // přílohy
+  ['Rýže vařená (150 g)',195],['Těstoviny vařené (150 g)',210],['Brambory vařené (200 g)',170],
+  ['Bramborová kaše (200 g)',220],['Hranolky (150 g)',450],['Houskový knedlík (2 plátky)',140],['Quinoa (150 g)',180],
+  // polévky
+  ['Vývar s nudlemi (talíř)',90],['Gulášová polévka (talíř)',220],['Krémová polévka (talíř)',180],['Rajčatová polévka (talíř)',120],
+  // svačiny & sladké
+  ['Čokoláda mléčná (25 g)',135],['Čokoláda hořká (25 g)',130],['Sušenka (1 ks)',55],['Tatranka (1 ks)',180],
+  ['Kobliha (1 ks)',250],['Zákusek / dort (1 ks)',350],['Zmrzlina (kopeček)',90],['Müsli tyčinka (1 ks)',120],
+  ['Proteinová tyčinka (1 ks)',200],['Ořechy směs (hrst 30 g)',185],['Mandle (30 g)',175],['Arašídové máslo (1 lžíce)',95],
+  ['Chipsy (50 g)',270],['Popcorn (miska)',150],['Rýžový chlebíček (1 ks)',35],['Krekry (30 g)',130],
+  // nápoje
+  ['Káva černá',2],['Cappuccino',60],['Latte (250 ml)',120],['Džus (250 ml)',115],['Kofola (0,5 l)',190],
+  ['Coca-Cola (0,5 l)',210],['Pivo (0,5 l)',190],['Víno (2 dl)',160],['Prosecco (sklenka)',90],
+  ['Smoothie ovocné (300 ml)',180],['Proteinový shake',130],
+  // ostatní
+  ['Chlebíček šunkový (1 ks)',150],['Bageta šunka-sýr plněná (1 ks)',450],['Tortilla wrap s kuřecím (1 ks)',480],
+  ['Salát Caesar s kuřecím (porce)',450],['Šopský salát (porce)',300],['Hummus (2 lžíce)',70],
+  ['Med (1 lžíce)',64],['Džem (1 lžíce)',55],['Olivový olej (1 lžíce)',120],['Majonéza (1 lžíce)',95],['Tatarka (1 lžíce)',80],
+];
+let foodISO = null;
+let mealSel = null;
+function mealByHour(){ const h=new Date().getHours(); if(h<10) return 0; if(h<11) return 1; if(h<14) return 2; if(h<17) return 1; return 3; }
+function foodLogFor(iso){ return state.food.log[iso] || []; }
+function foodNav(d){
+  const dt = new Date((foodISO||dateStr())+'T00:00:00'); dt.setDate(dt.getDate()+d);
+  const iso = dateStr(dt);
+  if(iso > dateStr()) return; // do budoucna jídlo nezapisujeme
+  foodISO = iso; renderFood();
+}
+function renderFood(){
+  if(!foodISO) foodISO = dateStr();
+  if(mealSel===null) mealSel = mealByHour();
+  const isToday = foodISO===dateStr();
+  document.getElementById('foodDateLbl').textContent = isToday ? 'Dnes' : fmtDate(foodISO);
+  document.getElementById('foodNext').disabled = isToday;
+  const items = foodLogFor(foodISO);
+  const total = items.reduce((a,x)=>a+(x.k||0),0);
+  const goal = state.food.goal||1800;
+  const pct = Math.min(100, Math.round(total/goal*100));
+  const over = total>goal;
+  const col = over ? 'var(--red)' : (total>goal*0.85 ? 'var(--amber)' : 'var(--green)');
+  document.getElementById('foodSummary').innerHTML = `
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:10px;">
+      <div><div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:700;">Snědeno</div>
+      <div class="kcal-big" style="color:${col};">${total}<small style="font-size:15px; color:var(--muted); font-weight:600;"> kcal</small></div></div>
+      <div style="text-align:right; font-size:13px; color:var(--muted);">cíl <b style="color:var(--text); cursor:pointer;" onclick="setFoodGoal()">${goal} ✏️</b><br>${over ? '<span style="color:var(--red); font-weight:700;">+'+(total-goal)+' nad cíl</span>' : 'zbývá '+(goal-total)+' kcal'}</div>
+    </div>
+    <div class="kcal-bar"><div class="fill" style="width:${pct}%; background:${col};"></div></div>`;
+  document.getElementById('mealChips').innerHTML = MEALS.map((m,i)=>`<button class="${i===mealSel?'on':''}" onclick="mealSel=${i};renderFood()">${m}</button>`).join('');
+  let lh='';
+  MEALS.forEach((m,mi)=>{
+    const mitems = items.map((x,xi)=>({x,xi})).filter(o=>o.x.m===mi);
+    if(!mitems.length) return;
+    const mt = mitems.reduce((a,o)=>a+(o.x.k||0),0);
+    lh += `<div class="card" style="padding:12px 16px;">
+      <div style="display:flex; justify-content:space-between; font-weight:800; font-size:14px;"><span>${m}</span><span style="color:var(--accent);">${mt} kcal</span></div>
+      ${mitems.map(o=>`<div class="food-item"><div style="flex:1;">${o.x.n}</div><div style="color:var(--muted); font-size:13px;">${o.x.k} kcal</div><span onclick="delFood(${o.xi})" style="color:var(--red); cursor:pointer; font-weight:800; padding:0 4px;">✕</span></div>`).join('')}
+    </div>`;
+  });
+  document.getElementById('foodList').innerHTML = lh || `<div class="card"><div class="empty">Zatím nic zapsaného.<br>Vyhledej jídlo nahoře, nebo napiš název a kalorie ručně. 🍽️</div></div>`;
+  renderFoodWeek();
+}
+function foodSug(){
+  const q = (document.getElementById('fq').value||'').toLowerCase().trim();
+  const box = document.getElementById('fsug');
+  if(q.length<2){ box.classList.add('hidden'); box.innerHTML=''; return; }
+  const hits = FOOD_DB.filter(f=>f[0].toLowerCase().includes(q)).slice(0,8);
+  if(!hits.length){ box.classList.add('hidden'); return; }
+  box.innerHTML = hits.map((f,i)=>`<div onclick="pickFood(${FOOD_DB.indexOf(f)})"><span>${f[0]}</span><b style="color:var(--accent); white-space:nowrap;">${f[1]} kcal</b></div>`).join('');
+  box.classList.remove('hidden');
+}
+function pickFood(dbIdx){
+  const f = FOOD_DB[dbIdx];
+  document.getElementById('fname').value = f[0];
+  document.getElementById('fkcal').value = f[1];
+  document.getElementById('fq').value = '';
+  document.getElementById('fsug').classList.add('hidden');
+}
+function addFood(){
+  const n = (document.getElementById('fname').value||'').trim();
+  const k = parseInt(document.getElementById('fkcal').value);
+  if(!n || isNaN(k) || k<0){ toast('Zadej název a kalorie 🙂'); return; }
+  if(!state.food.log[foodISO]) state.food.log[foodISO]=[];
+  state.food.log[foodISO].push({n, k, m:mealSel});
+  save();
+  document.getElementById('fname').value=''; document.getElementById('fkcal').value='';
+  renderFood();
+  toast('Zapsáno 🍽️');
+}
+function delFood(xi){
+  state.food.log[foodISO].splice(xi,1);
+  if(!state.food.log[foodISO].length) delete state.food.log[foodISO];
+  save(); renderFood();
+}
+function setFoodGoal(){
+  const v = prompt('Denní cíl kalorií:', state.food.goal||1800);
+  if(v!==null){ const n=parseInt(v); if(!isNaN(n)&&n>0){ state.food.goal=n; save(); renderFood(); toast('Cíl nastaven na '+n+' kcal'); } }
+}
+function renderFoodWeek(){
+  const goal = state.food.goal||1800;
+  const days=[];
+  for(let i=6;i>=0;i--){
+    const d=new Date(); d.setDate(d.getDate()-i);
+    const iso=dateStr(d);
+    days.push({iso, total: foodLogFor(iso).reduce((a,x)=>a+(x.k||0),0), lbl: WEEKDAY_NAMES[wdIdx(d)]});
+  }
+  const max = Math.max(goal*1.2, ...days.map(d=>d.total), 1);
+  const W=320, H=120, bw=32, x0=14, yB=H-22, hMax=H-42;
+  const gap=(W-2*x0-7*bw)/6;
+  const gy = yB-(goal/max)*hMax;
+  const bars = days.map((d,i)=>{
+    const h = Math.round((d.total/max)*hMax);
+    const x = x0+i*(bw+gap);
+    const col = d.total===0 ? 'var(--card2)' : (d.total>goal ? 'var(--red)' : 'var(--accent)');
+    return `<rect x="${x}" y="${yB-Math.max(h,3)}" width="${bw}" height="${Math.max(h,3)}" rx="4" fill="${col}" opacity="${d.iso===foodISO?'1':'0.7'}"/>
+      <text x="${x+bw/2}" y="${H-8}" font-size="9" fill="var(--muted)" text-anchor="middle">${d.lbl}</text>
+      ${d.total?`<text x="${x+bw/2}" y="${yB-h-5}" font-size="8" fill="var(--muted)" text-anchor="middle">${d.total}</text>`:''}`;
+  }).join('');
+  document.getElementById('foodWeek').innerHTML = `<h2>📊 Posledních 7 dní</h2>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; margin-top:8px; overflow:visible;">
+      <line x1="${x0}" y1="${gy}" x2="${W-x0}" y2="${gy}" stroke="var(--amber)" stroke-width="1.5" stroke-dasharray="4,4"/>
+      <text x="${W-x0}" y="${gy-4}" font-size="9" fill="var(--amber)" text-anchor="end">cíl ${goal}</text>
+      ${bars}
+    </svg>`;
+}
+
+/* =========================================================
+   DEN – návyky péče o sebe
+========================================================= */
+function habitLog(iso){ return state.habits.log[iso] || []; }
+function habitDone(id, iso){ return habitLog(iso).includes(id); }
+function toggleHabit(id){
+  const iso = dateStr();
+  if(!state.habits.log[iso]) state.habits.log[iso]=[];
+  const arr = state.habits.log[iso];
+  const i = arr.indexOf(id);
+  if(i>=0) arr.splice(i,1); else arr.push(id);
+  save(); renderDay();
+  if(i<0 && state.habits.list.length && state.habits.list.every(h=>arr.includes(h.id))){
+    toast('🌟 Všechno splněno! Skvělý den, Petro!');
+    if(navigator.vibrate) navigator.vibrate([80,40,80]);
+  }
+}
+function habitStreak(id){
+  let streak=0;
+  const d=new Date();
+  if(!habitDone(id, dateStr(d))) d.setDate(d.getDate()-1); // dnešek ještě může přijít
+  while(habitDone(id, dateStr(d))){ streak++; d.setDate(d.getDate()-1); }
+  return streak;
+}
+function renderDay(){
+  const iso = dateStr();
+  const list = state.habits.list;
+  const done = list.filter(h=>habitDone(h.id, iso)).length;
+  document.getElementById('dayDone').textContent = done+'/'+list.length;
+  document.getElementById('dayStreak').textContent = list.length ? Math.max(...list.map(h=>habitStreak(h.id))) : 0;
+  let perfect=0;
+  Object.keys(state.habits.log).forEach(k=>{
+    if(list.length && list.every(h=>state.habits.log[k].includes(h.id))) perfect++;
+  });
+  document.getElementById('dayPerfect').textContent = perfect;
+  const trained = state.history.some(h=>h.date===iso);
+  const kcal = foodLogFor(iso).reduce((a,x)=>a+(x.k||0),0);
+  const ate = foodLogFor(iso).length>0;
+  document.getElementById('dayAuto').innerHTML = `
+    <div style="display:flex; gap:14px;">
+      <div style="flex:1; text-align:center;"><div style="font-size:24px;">${trained?'✅':'⬜'}</div><div style="font-size:12px; color:var(--muted); font-weight:700; margin-top:4px;">💪 Trénink</div></div>
+      <div style="flex:1; text-align:center;"><div style="font-size:24px;">${ate?'✅':'⬜'}</div><div style="font-size:12px; color:var(--muted); font-weight:700; margin-top:4px;">🍽️ Jídlo${ate?' · '+kcal+' kcal':''}</div></div>
+    </div>
+    <div style="font-size:11px; color:var(--muted); text-align:center; margin-top:8px;">Doplňuje se samo z tabů Trénink a Jídlo</div>`;
+  document.getElementById('habitList').innerHTML = list.map((h,hi)=>{
+    const dots=[];
+    for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); dots.push(`<span class="${habitDone(h.id,dateStr(d))?'on':''}"></span>`); }
+    const st = habitStreak(h.id);
+    const on = habitDone(h.id, iso);
+    return `<div class="habit">
+      <div class="hemoji">${h.emoji||'✨'}</div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:700;">${h.name} ${st>1?`<span style="font-size:12px; color:var(--amber);">🔥${st}</span>`:''}</div>
+        <div class="hdots">${dots.join('')}</div>
+      </div>
+      <span onclick="editHabit(${hi})" style="color:var(--muted); cursor:pointer; font-size:13px; padding:4px;">✏️</span>
+      <div class="hchk ${on?'on':''}" onclick="toggleHabit('${h.id}')">✓</div>
+    </div>`;
+  }).join('') || `<div class="card"><div class="empty">Zatím žádné návyky.<br>Přidej si první tlačítkem níže! 🌸</div></div>`;
+}
+function editHabit(hi){
+  const isNew = hi<0;
+  const h = isNew ? {emoji:'✨', name:''} : state.habits.list[hi];
+  document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
+    <h3>${isNew?'Nový návyk':'Upravit návyk'}</h3>
+    <div class="grid2">
+      <div class="field"><label>Emoji</label><input id="h_emoji" value="${h.emoji||''}" placeholder="💊"></div>
+      <div class="field"><label>Název</label><input id="h_name" value="${(h.name||'').replace(/"/g,'&quot;')}" placeholder="např. Vitamíny"></div>
+    </div>
+    <div class="sheet-actions">
+      <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zrušit</button>
+      <button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="saveHabit(${hi})">Uložit</button>
+    </div>
+    ${!isNew?`<div class="del-link" onclick="deleteHabit(${hi})">Smazat návyk</div>`:''}
+  </div></div>`;
+}
+function saveHabit(hi){
+  const name = (document.getElementById('h_name').value||'').trim();
+  const emoji = (document.getElementById('h_emoji').value||'').trim()||'✨';
+  if(!name){ toast('Zadej název návyku'); return; }
+  if(hi<0) state.habits.list.push({id:'hb'+Date.now(), emoji, name});
+  else { state.habits.list[hi].name=name; state.habits.list[hi].emoji=emoji; }
+  save(); closeModal(); renderDay();
+  toast('Uloženo ✓');
+}
+function deleteHabit(hi){
+  if(confirm('Smazat návyk „'+state.habits.list[hi].name+'"?')){
+    state.habits.list.splice(hi,1);
+    save(); closeModal(); renderDay();
+  }
 }
 
 /* INIT */
