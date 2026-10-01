@@ -258,6 +258,14 @@
   .habit .hdots span.on{background:var(--green); border-color:var(--green);}
   .habit .hchk{width:46px; height:46px; border-radius:14px; border:2px solid var(--line); background:var(--bg2); display:flex; align-items:center; justify-content:center; font-size:22px; color:transparent; cursor:pointer; flex:0 0 auto; transition:.12s;}
   .habit .hchk.on{background:var(--green); border-color:var(--green); color:#06281e;}
+
+  /* ===== Motivace: konfety, úroveň, zahrádka ===== */
+  .confetti{position:fixed; top:-30px; z-index:300; animation:conf-fall 2.2s ease-in forwards; pointer-events:none;}
+  @keyframes conf-fall{to{transform:translateY(110vh) rotate(260deg); opacity:.55;}}
+  .lvl-bar{height:9px; background:var(--card2); border-radius:6px; overflow:hidden; margin-top:10px;}
+  .lvl-bar .fill{height:100%; border-radius:6px; background:linear-gradient(90deg,var(--accent2),var(--accent)); transition:width .4s;}
+  .garden-grid{display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; font-size:21px; line-height:1.25;}
+  .flower-big{font-size:52px; line-height:1; filter:drop-shadow(0 4px 10px rgba(124,58,237,.35));}
 </style>
 </head>
 <body>
@@ -331,14 +339,17 @@
 
   <!-- ===== DEN (péče o sebe) ===== -->
   <div id="view-day" class="hidden">
+    <div class="card" id="levelCard"></div>
     <div class="stat-row">
       <div class="stat"><div class="num" id="dayDone">0/0</div><div class="lbl">Dnes splněno</div></div>
       <div class="stat"><div class="num" id="dayStreak">0</div><div class="lbl">Série dní</div></div>
       <div class="stat"><div class="num" id="dayPerfect">0</div><div class="lbl">Perfektní dny</div></div>
     </div>
+    <div class="card" id="gardenCard"></div>
     <div class="card" id="dayAuto"></div>
     <div id="habitList"></div>
     <button class="small-add" onclick="editHabit(-1)">+ Přidat návyk</button>
+    <div class="card" id="careBadges"></div>
   </div>
 
   <!-- ===== PLÁN (úprava) ===== -->
@@ -377,7 +388,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '1. 10. 2026 · v5'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '1. 10. 2026 · v6'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -528,6 +539,8 @@ function load(){
     {id:'hb3', emoji:'🩳', name:'Lymfodrenáž'},
     {id:'hb4', emoji:'📖', name:'Četba'},
   ], log: {} };
+  // motivace
+  if(!s.careBadgesSeen) s.careBadgesSeen = [];
   return s;
 }
 
@@ -864,6 +877,7 @@ function finishWorkout(dayIdx){
   // nově odemčené odznaky (jen u nového záznamu, ne při přepisu)
   const newBadges = BADGES.filter(b=> b.n>prevCount && b.n<=state.history.length);
   showFinishModal(newBadges, volume, newPRs);
+  checkLevelUp();
 }
 
 // osobní rekord (max váha) – přesně pro tento cvik (podle názvu)
@@ -1496,6 +1510,7 @@ function logActivity(ai){
   save(); closeModal(); renderWeek(); renderWorkout(selectedDayIdx);
   const newBadges = BADGES.filter(b=>b.n>prevCount && b.n<=state.history.length);
   showActivityDone(name, emoji, mins, newBadges);
+  checkLevelUp();
 }
 function showActivityDone(name, emoji, mins, newBadges){
   const q = QUOTES[Math.floor(Math.random()*QUOTES.length)];
@@ -2275,7 +2290,8 @@ function addFood(){
   save();
   document.getElementById('fname').value=''; document.getElementById('fkcal').value='';
   renderFood();
-  toast('Zapsáno 🍽️');
+  toast('Zapsáno 🍽️ +10 b');
+  checkLevelUp();
 }
 function delFood(xi){
   state.food.log[foodISO].splice(xi,1);
@@ -2326,10 +2342,14 @@ function toggleHabit(id){
   const i = arr.indexOf(id);
   if(i>=0) arr.splice(i,1); else arr.push(id);
   save(); renderDay();
-  if(i<0 && state.habits.list.length && state.habits.list.every(h=>arr.includes(h.id))){
-    toast('🌟 Všechno splněno! Skvělý den, Petro!');
-    if(navigator.vibrate) navigator.vibrate([80,40,80]);
+  if(i<0){
+    if(state.habits.list.length && state.habits.list.every(h=>arr.includes(h.id))){
+      showPerfectDay(); // vše splněno – velká oslava s konfetami
+    } else {
+      toast(praiseFor(state.habits.list.find(h=>h.id===id)));
+    }
   }
+  checkLevelUp();
 }
 function habitStreak(id){
   let streak=0;
@@ -2373,6 +2393,55 @@ function renderDay(){
       <div class="hchk ${on?'on':''}" onclick="toggleHabit('${h.id}')">✓</div>
     </div>`;
   }).join('') || `<div class="card"><div class="empty">Zatím žádné návyky.<br>Přidej si první tlačítkem níže! 🌸</div></div>`;
+
+  // ===== úroveň a body =====
+  const li = levelInfo(calcXP());
+  const lpct = li.next ? Math.round((li.xp-li.cur)/(li.next-li.cur)*100) : 100;
+  document.getElementById('levelCard').innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div style="font-size:34px;">${li.emoji}</div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:800;">Úroveň ${li.idx} · ${li.title}</div>
+        <div style="font-size:12px; color:var(--muted);">${li.xp} bodů${li.next?` · do další úrovně ${li.next-li.xp} b`:' · MAX! 👑'}</div>
+      </div>
+      <div style="font-size:12px; color:var(--accent); font-weight:800;">${lpct} %</div>
+    </div>
+    <div class="lvl-bar"><div class="fill" style="width:${lpct}%;"></div></div>
+    <div style="font-size:11px; color:var(--muted); margin-top:8px;">Body: návyk +10 · zapsané jídlo +10 · den v kcal cíli +20 · trénink +30 · perfektní den +25</div>`;
+
+  // ===== zahrádka =====
+  const ps = perfectStreak(), pt = perfectTotal();
+  const wilted = pt>0 && ps===0 && !isPerfectDay(iso);
+  const flower = wilted ? '🥀' : FLOWER[Math.min(ps,5)];
+  const gardenFlowers = Array.from({length:Math.min(pt,42)},(_,i)=>GARDEN[i%GARDEN.length]).join('');
+  const flowerTxt = wilted
+    ? 'Kytka trochu povadla… splň dnes všechno a zase se vzpamatuje! 💜'
+    : (ps===0 ? 'Zasaď dnešní kytku – splň všechny návyky a začne růst.' : `Roste ti ${ps}. den v řadě – nenech ji uvadnout!`);
+  document.getElementById('gardenCard').innerHTML = `
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div class="flower-big">${flower}</div>
+      <div style="flex:1;">
+        <div style="font-weight:800;">Tvoje květina</div>
+        <div style="font-size:12px; color:var(--muted); line-height:1.5;">${flowerTxt}</div>
+      </div>
+    </div>
+    ${pt>0?`<div style="font-size:12px; color:var(--muted); margin-top:10px;">🌼 Zahrádka – za každý perfektní den jedna kytka (${pt}${pt>42?', posledních 42':''}):</div>
+    <div class="garden-grid">${gardenFlowers}</div>`:''}`;
+
+  // ===== odznaky péče =====
+  const seen = state.careBadgesSeen || [];
+  const fresh = CARE_BADGES.filter(b=>b.test() && !seen.includes(b.id));
+  if(fresh.length){
+    state.careBadgesSeen = seen.concat(fresh.map(b=>b.id));
+    save();
+    confettiBurst();
+    toast('🏅 Nový odznak: '+fresh[0].t+'!');
+  }
+  document.getElementById('careBadges').innerHTML = `<h2>🏅 Odznaky péče o sebe</h2>
+    <div class="badges">${CARE_BADGES.map(b=>{
+      const on = b.test();
+      return `<div class="badge ${on?'':'locked'}"><div class="bi">${b.icon}</div><div class="bt">${b.t}</div><div class="bd">${b.d}</div></div>`;
+    }).join('')}</div>`;
 }
 function editHabit(hi){
   const isNew = hi<0;
@@ -2406,8 +2475,120 @@ function deleteHabit(hi){
   }
 }
 
+/* =========================================================
+   MOTIVACE – body, úrovně, zahrádka, odznaky péče, konfety
+========================================================= */
+const LEVELS = [
+  [0,'Začátečnice','🌱'],[100,'Snaživka','✨'],[250,'Pečující','🧴'],[500,'Disciplinovaná','💪'],
+  [800,'Železná vůle','🔥'],[1200,'Wellness královna','👸'],[1700,'Superžena','⚡'],
+  [2300,'Bohyně rovnováhy','🌸'],[3000,'Legenda','👑']
+];
+const FLOWER = ['🌱','🌿','🌷','🌸','🌺','💐'];
+const GARDEN = ['🌸','🌷','🌹','🌻','🌼','🪻','🌺'];
+const PRAISE = ['Paráda! ✨ +10 b','Skvěle! 💜 +10 b','Jede to! 🚀 +10 b','Hezky! 🌟 +10 b'];
+
+// body: návyk +10, perfektní den +25, zapsaný den jídla +10, den v cíli +20, trénink/aktivita +30
+function calcXP(){
+  let xp = 0;
+  Object.values(state.habits.log).forEach(arr=>{ xp += arr.length*10; });
+  Object.keys(state.habits.log).forEach(k=>{ if(isPerfectDay(k)) xp += 25; });
+  Object.keys(state.food.log).forEach(k=>{
+    const items = state.food.log[k]; if(!items.length) return;
+    xp += 10;
+    const tot = items.reduce((a,x)=>a+(x.k||0),0);
+    if(items.length>=3 && tot<=(state.food.goal||1800)) xp += 20;
+  });
+  xp += state.history.length*30;
+  return xp;
+}
+function levelInfo(xp){
+  let li=0;
+  LEVELS.forEach((l,i)=>{ if(xp>=l[0]) li=i; });
+  const cur=LEVELS[li], next=LEVELS[li+1]||null;
+  return {idx:li+1, title:cur[1], emoji:cur[2], cur:cur[0], next: next?next[0]:null, xp};
+}
+function checkLevelUp(){
+  const li = levelInfo(calcXP());
+  if(state.levelSeen===undefined || state.levelSeen===null){ state.levelSeen = li.idx; save(); return; }
+  if(li.idx > state.levelSeen){
+    state.levelSeen = li.idx; save();
+    confettiBurst();
+    toast(`⭐ Nová úroveň ${li.idx}: ${li.title} ${li.emoji}`);
+    if(navigator.vibrate) navigator.vibrate([100,50,100,50,200]);
+  }
+}
+function isPerfectDay(iso){
+  const list = state.habits.list;
+  const arr = state.habits.log[iso];
+  return !!(list.length && arr && list.every(h=>arr.includes(h.id)));
+}
+function perfectStreak(){
+  let s=0; const d=new Date();
+  if(!isPerfectDay(dateStr(d))) d.setDate(d.getDate()-1);
+  while(isPerfectDay(dateStr(d))){ s++; d.setDate(d.getDate()-1); }
+  return s;
+}
+function perfectTotal(){ return Object.keys(state.habits.log).filter(isPerfectDay).length; }
+function foodLogStreak(){
+  let s=0; const d=new Date();
+  if(!foodLogFor(dateStr(d)).length) d.setDate(d.getDate()-1);
+  while(foodLogFor(dateStr(d)).length){ s++; d.setDate(d.getDate()-1); }
+  return s;
+}
+function goalDaysTotal(){
+  return Object.keys(state.food.log).filter(k=>{
+    const it=state.food.log[k];
+    const t=it.reduce((a,x)=>a+(x.k||0),0);
+    return it.length>=3 && t<=(state.food.goal||1800);
+  }).length;
+}
+const CARE_BADGES = [
+  {id:'c1', icon:'🌸', t:'První kytka',    d:'1. perfektní den',        test:()=>perfectTotal()>=1},
+  {id:'c2', icon:'🌷', t:'Záhonek',        d:'10 perfektních dnů',      test:()=>perfectTotal()>=10},
+  {id:'c3', icon:'💐', t:'Zahrada',        d:'30 perfektních dnů',      test:()=>perfectTotal()>=30},
+  {id:'c4', icon:'🔥', t:'Týden v kuse',   d:'návyk 7 dní v řadě',      test:()=>state.habits.list.some(h=>habitStreak(h.id)>=7)},
+  {id:'c5', icon:'⚡', t:'Měsíc v kuse',   d:'návyk 30 dní v řadě',     test:()=>state.habits.list.some(h=>habitStreak(h.id)>=30)},
+  {id:'c6', icon:'🍽️', t:'První zápis',    d:'1. den s jídelníčkem',    test:()=>Object.keys(state.food.log).length>=1},
+  {id:'c7', icon:'📒', t:'Poctivý deník',  d:'jídlo 7 dní v řadě',      test:()=>foodLogStreak()>=7},
+  {id:'c8', icon:'🎯', t:'Mistr cíle',     d:'5 dní v kalorickém cíli', test:()=>goalDaysTotal()>=5},
+];
+function praiseFor(h){
+  const n=(h&&h.name||'').toLowerCase();
+  if(n.includes('vitam')) return '💊 Tělo ti poděkuje! +10 b';
+  if(n.includes('krém')||n.includes('kosmet')||n.includes('pleť')) return '🧴 Pleť bude zářit! +10 b';
+  if(n.includes('lymf')) return '🩳 Nohy si oddychnou! +10 b';
+  if(n.includes('čet')||n.includes('knih')||n.includes('kníž')) return '📖 Mozek nakrmen! +10 b';
+  return PRAISE[Math.floor(Math.random()*PRAISE.length)];
+}
+function confettiBurst(){
+  const EM=['🌸','⭐','💜','✨','🌷'];
+  for(let i=0;i<28;i++){
+    const s=document.createElement('div');
+    s.className='confetti';
+    s.textContent=EM[i%EM.length];
+    s.style.left=(Math.random()*100)+'vw';
+    s.style.animationDelay=(Math.random()*0.4)+'s';
+    s.style.fontSize=(14+Math.random()*14)+'px';
+    document.body.appendChild(s);
+    setTimeout(()=>{ try{s.remove();}catch(e){} }, 2800);
+  }
+}
+function showPerfectDay(){
+  confettiBurst();
+  const ps = perfectStreak();
+  document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()">
+    <div class="sheet finish-card">
+      <div class="flower-big" style="margin:4px 0 6px;">${FLOWER[Math.min(ps,5)]}</div>
+      <h3 style="margin:4px 0;">Perfektní den, Petro! 🌟</h3>
+      <div class="finish-quote">Všechno splněno – tvoje květina povyrostla!<br><span style="font-size:13px; color:var(--muted); font-weight:500;">Série perfektních dnů: <b style="color:var(--accent);">${ps}</b> · bonus +25 b</span></div>
+      <div class="sheet-actions"><button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="closeModal()">Krása 💜</button></div>
+    </div></div>`;
+  if(navigator.vibrate) navigator.vibrate([100,60,100,60,220]);
+}
+
 /* INIT */
 migratePlanGrp();
+if(state.levelSeen===undefined || state.levelSeen===null){ state.levelSeen = levelInfo(calcXP()).idx; save(); }
 applyTheme(state.settings.theme);
 renderWeek();
 renderWorkout(null);
