@@ -268,6 +268,7 @@
   /* ===== Mazlíček ===== */
   .pet-stage{position:relative; height:200px; border-radius:18px; overflow:hidden; margin-top:10px;
     background:radial-gradient(ellipse at 50% 108%, var(--accent-soft) 0%, transparent 62%), linear-gradient(180deg, var(--bg2), var(--card2));}
+  .pet-cv{display:block; width:100%; height:100%; touch-action:manipulation; cursor:pointer;}
   .pet-shadow{position:absolute; left:50%; bottom:16px; width:96px; height:14px; margin-left:-48px; border-radius:50%; background:rgba(0,0,0,.32); filter:blur(3px);}
   .pet-body{position:absolute; left:50%; bottom:20px; line-height:1; transform-origin:50% 100%; transform:translateX(-50%); transition:filter .5s;}
   .pet-body.m-ecstatic{animation:pet-bounce 1s ease-in-out infinite; filter:drop-shadow(0 0 14px rgba(251,191,36,.55));}
@@ -423,12 +424,13 @@
 <div id="focusRoot"></div>
 <div id="modalRoot"></div>
 
+<script src="mazlicek.js"></script>
 <script>
 /* =========================================================
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '4. 10. 2026 · v11'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '4. 10. 2026 · v12'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -3027,7 +3029,9 @@ function petSay(mood, sc, missing){
 function renderPet(){
   const card = document.getElementById('petCard');
   if(!card) return;
-  if(!state.pet){ renderPetAdopt(card); renderPetMini(); return; }
+  if(!state.pet){ card.dataset.mode='adopt'; renderPetAdopt(card); renderPetMini(); return; }
+  if(window.PetAnim){ renderPetCanvas(card); renderPetMini(); return; }
+  card.dataset.mode = 'emoji'; // záložní emoji mazlíček, kdyby se animace nenačetla
   const pet = state.pet, iso = dateStr();
   const areas = petAreas(iso);
   const sc = petScore(iso);
@@ -3099,6 +3103,60 @@ function renderPet(){
     <div class="pet-needs">${needs}</div>
     ${pt?`<div style="font-size:12px; color:var(--muted); margin-top:12px;">💖 Srdíčka za perfektní dny: <b style="color:var(--text);">${pt}</b></div>`:''}`;
   renderPetMini();
+}
+// animovaný mazlíček (mazlicek.js) – plátno zůstává stejné, mění se jen jeho stav
+const PET_SPECIES = {'🐱':'cat','🐶':'dog','🐰':'rabbit','🐼':'panda','🐹':'hamster','🦊':'fox','🦄':'unicorn','🐨':'koala','🐷':'pig','🐧':'penguin'};
+function petAnimState(){
+  const iso = dateStr();
+  const areas = petAreas(iso);
+  const done = k => areas.some(a=>a.habit && a.done && a.acc.kind===k);
+  const food = areas.find(a=>a.key==='food'), train = areas.find(a=>a.key==='train');
+  const extras = areas.filter(a=>a.habit && a.done && a.acc.kind==='slot').map(a=>a.acc.e).slice(0,4);
+  return {
+    species: PET_SPECIES[state.pet.animal] || 'cat',
+    mood: petMood(),
+    stage: Math.min(3, petStage().idx),
+    acc: { bowl: food.done ? 'full' : 'empty', dumbbell: !!train.done, bow: done('bow'), sparkles: done('vitamins'),
+           bubbles: done('bubbles'), books: done('book'), extras }
+  };
+}
+function petNeedsHtml(areas){
+  return areas.map(a=>{
+    const click = a.habit ? `toggleHabit('${a.key}')` : (a.key==='food' ? `switchView('food')` : (a.rest ? '' : `switchView('train')`));
+    const status = a.rest ? 'volno 🌿' : (a.done ? '✓ nakrmeno' : (a.habit ? 'klepni = hotovo' : 'otevřít'));
+    return `<div class="need ${a.done?'on':''} ${a.rest?'rest':''}" ${click?`onclick="${click}"`:''}><span class="ni">${a.icon}</span>${a.label}<div style="font-size:9px; font-weight:600; opacity:.8; margin-top:2px;">${status}</div></div>`;
+  }).join('');
+}
+function renderPetCanvas(card){
+  const pet = state.pet, iso = dateStr();
+  const areas = petAreas(iso), sc = petScore(iso), mood = petMood(), st = petStage(), pt = perfectTotal();
+  if(card.dataset.mode !== 'canvas'){
+    card.dataset.mode = 'canvas';
+    card.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <div><div id="petTitle" style="font-weight:800; font-size:16px;"></div><div id="petStageTxt" style="font-size:12px; color:var(--muted);"></div></div>
+        <span onclick="editPet()" style="color:var(--muted); cursor:pointer; font-size:13px; padding:4px;">✏️</span>
+      </div>
+      <div class="pet-stage"><canvas id="petCanvas" class="pet-cv" aria-label="Tvůj mazlíček – klepnutím ho podrbeš"></canvas></div>
+      <div class="pet-say" id="petSayTxt"></div>
+      <div id="petFeedTxt" style="font-size:12px; color:var(--muted); margin-top:12px;"></div>
+      <div class="pet-needs" id="petNeeds"></div>
+      <div id="petHearts" style="font-size:12px; color:var(--muted); margin-top:12px;"></div>`;
+  }
+  document.getElementById('petTitle').textContent = pet.animal+' '+pet.name;
+  document.getElementById('petStageTxt').textContent = st.name + (st.nextName ? ` · do fáze ${st.nextName} ještě ${st.toNext} ${st.toNext===1?'perfektní den':'perfektních dnů'}` : ' · nejvyšší fáze 👑');
+  document.getElementById('petSayTxt').textContent = petSay(mood, sc, areas.filter(a=>!a.done && !a.rest).map(a=>a.icon));
+  document.getElementById('petFeedTxt').innerHTML = `Krmení dnes: <b style="color:var(--text);">${sc.d}/${sc.n}</b> · každá oblast se ukáže na mazlíčkovi 👇`;
+  document.getElementById('petNeeds').innerHTML = petNeedsHtml(areas);
+  document.getElementById('petHearts').innerHTML = pt ? `💖 Srdíčka za perfektní dny: <b style="color:var(--text);">${pt}</b> · klepni na mazlíčka a podrbeš ho` : 'Tip: klepni na mazlíčka a podrbeš ho 💜';
+  const cv = document.getElementById('petCanvas');
+  const s = petAnimState();
+  try{
+    if(!cv.dataset.mounted){ PetAnim.mount(cv, s); cv.dataset.mounted = '1'; }
+    else PetAnim.update(cv, s);
+    if(petFeedIcon) PetAnim.feed(cv, petFeedIcon);
+  }catch(e){}
+  petFeedIcon = null;
 }
 function renderPetAdopt(card){
   if(!petPick) petPick = PET_ANIMALS[0];
@@ -3376,6 +3434,7 @@ function photoSave(){
 }
 
 /* INIT */
+if(window.PetAnim){ try{ PetAnim.start(); }catch(e){} }
 migratePlanGrp();
 if(state.levelSeen===undefined || state.levelSeen===null){ state.levelSeen = levelInfo(calcXP()).idx; save(); }
 applyTheme(state.settings.theme);
