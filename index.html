@@ -428,7 +428,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '4. 10. 2026 · v10'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '4. 10. 2026 · v11'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -3249,8 +3249,8 @@ function resizeImage(file, max){
 }
 const GEM_PROMPT = `Jsi výživový poradce. Na fotce je jídlo. Rozpoznej jednotlivé položky na talíři a odhadni jejich porci a kalorie.
 Odpověz POUZE jako JSON bez dalšího textu v tomto tvaru:
-{"items":[{"name":"název česky","portion":"odhad porce, např. 150 g","kcal":123}],"note":"krátká poznámka česky (max 1 věta)"}
-Pravidla: názvy česky, kcal jako celé číslo, odhaduj realisticky střední porci podle velikosti na fotce, započítej omáčky a oleje.
+{"items":[{"name":"název česky","grams":150,"kcal":123}],"note":"krátká poznámka česky (max 1 věta)"}
+Pravidla: názvy česky, grams = odhadnutá hmotnost porce v gramech (u nápojů v ml) jako celé číslo, kcal = kalorie celé porce jako celé číslo. Odhaduj realisticky podle velikosti na fotce, započítej omáčky a oleje.
 Pokud na fotce není jídlo ani pití, vrať {"items":[],"note":"Na fotce nevidím jídlo."}`;
 async function photoFoodPicked(inp){
   const file = inp.files && inp.files[0];
@@ -3299,7 +3299,12 @@ function parseGemJson(txt){
   if(a>=0 && b>a) t = t.slice(a, b+1);
   try{
     const o = JSON.parse(t);
-    const items = (o.items||[]).map(x=>({name:String(x.name||'Jídlo').slice(0,60), portion:String(x.portion||'').slice(0,30), kcal:Math.max(0, Math.round(Number(x.kcal)||0))}));
+    const items = (o.items||[]).map(x=>{
+      const kcal = Math.max(0, Math.round(Number(x.kcal)||0));
+      let grams = Math.round(Number(x.grams)||0);
+      if(!grams){ const m = String(x.portion||'').match(/(\d+(?:[.,]\d+)?)\s*(g|ml)\b/i); if(m) grams = Math.round(parseFloat(m[1].replace(',','.'))); }
+      return {name:String(x.name||'Jídlo').slice(0,60), grams, kcal, per: grams>0 ? kcal/grams : 0};
+    });
     return {items, note: String(o.note||'').slice(0,160)};
   }catch(e){
     return {items:[], note:'Odpověď se nepodařilo přečíst – zkus fotku znovu.'};
@@ -3310,9 +3315,11 @@ function showPhotoResult(dataUrl, r){
   const rows = photoItems.map((x,i)=>`
     <div class="food-item" style="gap:8px;">
       <input type="checkbox" ${x.on?'checked':''} onchange="photoItems[${i}].on=this.checked; photoTotal()" style="width:20px; height:20px; accent-color:var(--accent);">
-      <div style="flex:1; min-width:0;"><div style="font-weight:700;">${x.name}</div>${x.portion?`<div style="font-size:11px; color:var(--muted);">${x.portion}</div>`:''}</div>
-      <input type="number" inputmode="numeric" value="${x.kcal}" oninput="photoItems[${i}].kcal=Math.max(0,parseInt(this.value)||0); photoTotal()" style="width:76px; background:var(--bg2); border:1px solid var(--line); border-radius:9px; color:var(--text); font-size:15px; padding:7px; text-align:center;">
-      <span style="font-size:12px; color:var(--muted);">kcal</span>
+      <div style="flex:1; min-width:0; font-weight:700; font-size:14px; line-height:1.3;">${x.name}</div>
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted);"><input type="number" inputmode="numeric" value="${x.grams||''}" placeholder="?" oninput="photoGrams(${i}, this.value)" style="width:64px; background:var(--bg2); border:1px solid var(--line); border-radius:9px; color:var(--text); font-size:15px; padding:6px; text-align:center;"> g</label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted);"><input type="number" inputmode="numeric" id="pk${i}" value="${x.kcal}" oninput="photoKcal(${i}, this.value)" style="width:64px; background:var(--bg2); border:1px solid var(--line); border-radius:9px; color:var(--accent); font-weight:700; font-size:15px; padding:6px; text-align:center;"> kcal</label>
+      </div>
     </div>`).join('');
   document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
     <img src="${dataUrl}" style="max-width:100%; max-height:170px; border-radius:14px; display:block; margin:0 auto 10px;">
@@ -3322,13 +3329,31 @@ function showPhotoResult(dataUrl, r){
     ${photoItems.length ? `
       <div style="display:flex; justify-content:space-between; font-weight:800; margin-top:10px;"><span>Celkem</span><span id="photoSum" style="color:var(--accent);"></span></div>
       <div class="meal-chips" id="photoMeals"></div>
-      <div style="font-size:11px; color:var(--muted);">Je to odhad – hodnoty klidně uprav, než je zapíšeš.</div>` : ''}
+      <div style="font-size:11px; color:var(--muted);">Je to odhad – uprav gramy a kalorie se přepočítají samy. Kalorie jdou přepsat i ručně.</div>` : ''}
     <div class="sheet-actions">
       <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zrušit</button>
       ${photoItems.length?`<button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="photoSave()">Zapsat ✓</button>`:''}
     </div>
   </div></div>`;
   if(photoItems.length){ photoTotal(); photoMealsRender(); }
+}
+// změna gramáže -> přepočet kalorií podle hustoty (kcal na gram) z odhadu
+function photoGrams(i, v){
+  const x = photoItems[i];
+  const g = Math.max(0, parseInt(v)||0);
+  if(x.per>0 && g>0){
+    x.kcal = Math.round(x.per*g);
+    const el = document.getElementById('pk'+i); if(el) el.value = x.kcal;
+  } else if(!x.per && g>0 && x.kcal>0){ x.per = x.kcal/g; }
+  x.grams = g;
+  photoTotal();
+}
+// ruční přepsání kalorií -> nová hustota pro další úpravy gramů
+function photoKcal(i, v){
+  const x = photoItems[i];
+  x.kcal = Math.max(0, parseInt(v)||0);
+  if(x.grams>0) x.per = x.kcal/x.grams;
+  photoTotal();
 }
 function photoMealsRender(){
   const el = document.getElementById('photoMeals');
@@ -3343,7 +3368,7 @@ function photoSave(){
   if(!sel.length){ toast('Vyber aspoň jednu položku'); return; }
   if(!foodISO) foodISO = dateStr();
   if(!state.food.log[foodISO]) state.food.log[foodISO] = [];
-  sel.forEach(x=>state.food.log[foodISO].push({n: x.name+(x.portion?' ('+x.portion+')':''), k:x.kcal, m:photoMeal, src:'foto'}));
+  sel.forEach(x=>state.food.log[foodISO].push({n: x.name+(x.grams?' ('+x.grams+' g)':''), k:x.kcal, m:photoMeal, src:'foto', g:x.grams||null}));
   mealSel = photoMeal;
   save(); closeModal(); renderFood();
   toast(`Zapsáno z fotky 📷 +${sel.reduce((a,x)=>a+x.kcal,0)} kcal`);
