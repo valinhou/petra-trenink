@@ -428,7 +428,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '4. 10. 2026 · v9'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '4. 10. 2026 · v10'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -765,12 +765,14 @@ function renderWorkout(dayIdx){
   const dateInfo = selectedISO!==dateStr() ? ` <span style="color:var(--accent); font-weight:600;">(${fmtDate(selectedISO)})</span>` : '';
 
   // aktivity zapsané na vybraný den
-  const acts = state.history.filter(h=>h.date===selectedISO && h.activity);
-  const actsHtml = acts.length ? `<div class="card" style="padding:12px 16px;">${acts.map(a=>`
+  const acts = state.history.map((h,hi)=>({h,hi})).filter(o=>o.h.date===selectedISO && o.h.activity);
+  const actsHtml = acts.length ? `<div class="card" style="padding:12px 16px;">${acts.map(({h:a,hi})=>`
     <div style="display:flex; align-items:center; gap:12px; padding:4px 0;">
       <span style="font-size:26px;">${a.emoji||'🤸'}</span>
       <div style="flex:1;"><b>${a.dayName}</b>${a.minutes?` · ${a.minutes} min`:''}
       <div style="font-size:11px; color:var(--green);">✓ zapsaná aktivita</div></div>
+      <button class="icon-btn" onclick="editActivity(${hi})" title="Upravit aktivitu">✏️</button>
+      <button class="icon-btn" onclick="deleteActivity(${hi})" title="Smazat aktivitu">🗑️</button>
     </div>`).join('')}</div>` : '';
 
   // prázdný den – vyplní se jen na vyžádání
@@ -1625,6 +1627,55 @@ function showActivityDone(name, emoji, mins, newBadges){
       <div class="sheet-actions"><button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="closeModal()">Super 🎉</button></div>
     </div></div>`;
   if(navigator.vibrate) navigator.vibrate([120,60,120]);
+}
+
+// úprava a mazání už zapsané aktivity (skupinovka apod.)
+function editActivity(hi){
+  const a = state.history[hi];
+  if(!a || !a.activity) return;
+  const known = ACTIVITIES.findIndex(x=>x.name===a.dayName);
+  document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
+    <h3>✏️ Upravit aktivitu</h3>
+    <div class="field"><label>Aktivita</label><select id="ea_type" onchange="document.getElementById('ea_customWrap').style.display = this.value==='-1' ? '' : 'none'">
+      ${ACTIVITIES.map((x,i)=>`<option value="${i}" ${i===known?'selected':''}>${x.emoji} ${x.name}</option>`).join('')}
+      <option value="-1" ${known<0?'selected':''}>✍️ Jiná aktivita</option>
+    </select></div>
+    <div class="field" id="ea_customWrap" style="${known<0?'':'display:none'}"><label>Název</label><input id="ea_name" value="${known<0?String(a.dayName).replace(/"/g,'&quot;'):''}" placeholder="např. Pilates"></div>
+    <div class="grid2">
+      <div class="field"><label>Délka (minuty)</label><input id="ea_min" type="number" inputmode="numeric" value="${a.minutes||''}"></div>
+      <div class="field"><label>Datum</label><input id="ea_date" type="date" value="${a.date}" max="${dateStr()}"></div>
+    </div>
+    <div class="sheet-actions">
+      <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zrušit</button>
+      <button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="saveActivity(${hi})">Uložit</button>
+    </div>
+    <div class="del-link" onclick="deleteActivity(${hi})">Smazat aktivitu</div>
+  </div></div>`;
+}
+function saveActivity(hi){
+  const a = state.history[hi];
+  if(!a) return;
+  const ti = parseInt(document.getElementById('ea_type').value);
+  if(ti>=0){ a.dayName = ACTIVITIES[ti].name; a.emoji = ACTIVITIES[ti].emoji; }
+  else {
+    const n = (document.getElementById('ea_name').value||'').trim();
+    if(!n){ toast('Napiš název aktivity'); return; }
+    a.dayName = n;
+    if(ACTIVITIES.some(x=>x.emoji===a.emoji)) a.emoji = '🏃‍♀️';
+  }
+  a.minutes = parseInt(document.getElementById('ea_min').value) || null;
+  const d = document.getElementById('ea_date').value;
+  if(d && d<=dateStr()){ a.date = d; a.dayIdx = wdFromISO(d); }
+  save(); closeModal(); renderWeek(); renderWorkout(selectedDayIdx);
+  toast('Aktivita upravena ✓');
+}
+function deleteActivity(hi){
+  const a = state.history[hi];
+  if(!a || !a.activity) return;
+  if(!confirm(`Smazat aktivitu „${a.dayName}"${a.minutes?' ('+a.minutes+' min)':''}?`)) return;
+  state.history.splice(hi,1);
+  save(); closeModal(); renderWeek(); renderWorkout(selectedDayIdx);
+  toast('Aktivita smazána');
 }
 
 function removeExercise(wd, ei){
