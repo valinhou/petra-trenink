@@ -144,6 +144,8 @@
   .fig-machine{stroke:var(--line); stroke-width:6; fill:none; stroke-linecap:round; stroke-linejoin:round;}
   .fig-cable{stroke:var(--muted); stroke-width:2.5; fill:none; stroke-linecap:round;}
   .fig-far{opacity:.42;}
+  .anim-cv{display:block; width:100%; max-width:360px; aspect-ratio:400/250; margin:0 auto;}
+  .anim-cue{text-align:center; font-size:13px; font-weight:800; color:var(--accent); min-height:18px; margin-top:4px; letter-spacing:.3px;}
   .ex-anim{display:flex; justify-content:center; padding:8px 0 2px; margin-bottom:4px;}
   @keyframes mv-up{0%,100%{transform:translateY(0)}50%{transform:translateY(-18px)}}
   @keyframes mv-down{0%,100%{transform:translateY(0)}50%{transform:translateY(16px)}}
@@ -425,12 +427,17 @@
 <div id="modalRoot"></div>
 
 <script src="mazlicek.js"></script>
+<script src="animace.js"></script>
+<script src="animace-hipthrust.js"></script>
+<script src="animace-nohy.js"></script>
+<script src="animace-horni.js"></script>
+<script src="animace-volne.js"></script>
 <script>
 /* =========================================================
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '4. 10. 2026 · v12'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '4. 10. 2026 · v13'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -833,7 +840,7 @@ function renderWorkout(dayIdx){
         <div class="ex-chev">▶</div>
       </div>
       <div class="ex-body">
-        <div class="ex-anim">${exAnim(ex.anim||planEx.anim)}</div>
+        <div class="ex-anim" style="flex-direction:column;">${exAnim(ex.anim||planEx.anim)}<div class="anim-cue"></div></div>
         ${lastTxt?`<div class="last-note">📋 Minule: <b>${lastTxt}</b></div>`:''}
         <div class="set-head"><div></div><div>Váha (kg)</div><div>Opak.</div><div></div></div>
         ${ex.sets.map((s,si)=>`
@@ -854,6 +861,7 @@ function renderWorkout(dayIdx){
   <button class="btn btn-green" onclick="finishWorkout(${dayIdx})">✓ Uložit trénink</button>
   <div class="del-link" onclick="clearDay(${dayIdx})" style="margin:10px 0 4px;">Vyprázdnit tento den</div>`;
   area.innerHTML = html;
+  mountAnims();
 
   // otevři první nedokončený cvik
   const firstOpen = session.exercises.findIndex(e=>!e.sets.every(s=>s.done));
@@ -2115,7 +2123,14 @@ const ANIM_OPTS = [
   ['biceps','Biceps (zdvih)'],['triceps','Triceps (stah)'],
   ['lunge','Výpady / dřepy'],['plank','Plank / výdrž'],['generic','Obecné']
 ];
-function exAnim(key){ return `<svg class="anim-svg janim" data-anim="${EXA[key]?key:"generic"}" viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg"><g>${(EXA[key]||EXA.generic).bg||""}</g><g class="dyn"></g></svg>`; }
+function mountAnims(){ if(window.FitAnim){ try{ document.querySelectorAll('canvas.fitanim').forEach(c=>FitAnim.mount(c)); }catch(e){} } }
+function exAnim(key){
+  if(window.FitAnim && FitAnim.keys().length){
+    const k = FitAnim.get(key) ? key : (FitAnim.get('generic') ? 'generic' : 'hipthrust');
+    return `<canvas class="fitanim anim-cv" data-anim="${k}" aria-label="Animace cviku"></canvas>`;
+  }
+  return `<svg class="anim-svg janim" data-anim="${EXA[key]?key:"generic"}" viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg"><g>${(EXA[key]||EXA.generic).bg||""}</g><g class="dyn"></g></svg>`;
+}
 
 /* =========================================================
    DOPORUČENÍ ZÁTĚŽE (progrese)
@@ -2253,7 +2268,7 @@ function renderFocus(){
         <div class="focus-progress">${segs}</div>
       </div>
       <div class="focus-body">
-        <div class="focus-anim">${exAnim(ex.anim||pe.anim)}</div>
+        <div class="focus-anim">${exAnim(ex.anim||pe.anim)}<div class="anim-cue"></div></div>
         <div class="focus-exname">${ex.name}</div>
         <div class="focus-machine">${ex.machine||''}</div>
         <div class="focus-setinfo">Cvik ${focus.exIdx+1}/${totalEx} · série hotovo ${doneCount}/${ex.sets.length}</div>
@@ -2262,6 +2277,7 @@ function renderFocus(){
         ${action}
       </div>
     </div>`;
+  mountAnims();
 }
 
 /* =========================================================
@@ -3435,6 +3451,13 @@ function photoSave(){
 
 /* INIT */
 if(window.PetAnim){ try{ PetAnim.start(); }catch(e){} }
+if(window.FitAnim){
+  try{
+    // popisek fáze pohybu (Zvedni / Výdrž / Pomalu dolů) pod animací v režimu cvičení
+    FitAnim.onPhase = function(cv, info){ const cue = cv.parentElement && cv.parentElement.querySelector('.anim-cue'); if(cue) cue.textContent = info.label||''; };
+    FitAnim.start();
+  }catch(e){}
+}
 migratePlanGrp();
 if(state.levelSeen===undefined || state.levelSeen===null){ state.levelSeen = levelInfo(calcXP()).idx; save(); }
 applyTheme(state.settings.theme);
