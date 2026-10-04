@@ -370,7 +370,8 @@
         <input id="fkcal" type="number" inputmode="numeric" placeholder="kcal" style="flex:1; min-width:0; background:var(--bg2); border:1px solid var(--line); border-radius:11px; color:var(--text); font-size:15px; padding:11px; text-align:center;">
         <button onclick="addFood()" style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border:none; border-radius:11px; padding:0 18px; font-weight:800; font-size:20px; cursor:pointer;">＋</button>
       </div>
-      <div style="font-size:11px; color:var(--muted); margin-top:8px;">Tip: vyfoť jídlo a pošli Claudovi v mobilu („odhadni kalorie z fotky") – číslo pak zapiš sem.</div>
+      <button class="btn btn-primary" onclick="photoFoodStart()" style="margin:12px 0 0;">📷 Vyfotit jídlo – spočítám kalorie</button>
+      <input type="file" id="foodPhoto" accept="image/*" style="display:none" onchange="photoFoodPicked(this)">
     </div>
     <div id="foodList"></div>
     <div class="card" id="foodWeek"></div>
@@ -427,7 +428,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '4. 10. 2026 · v8'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '4. 10. 2026 · v9'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -1356,6 +1357,24 @@ function renderPlan(){
     <div style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5; background:var(--accent-soft); border-radius:10px; padding:10px;">ℹ️ Večerní připomínka v ${state.settings.eveningTime||'19:00'} se spustí, <b>když je appka v tu dobu otevřená</b>. Aby vyskočila i při zavřené appce, je potřeba iPhone Shortcut – návod ti řeknu.</div>
     <button onclick="enableNotif()" style="background:var(--card2); border:1px solid var(--line); color:var(--text); border-radius:11px; padding:12px; font-weight:600; cursor:pointer; width:100%; margin-top:14px;">🔔 Povolit upozornění v prohlížeči</button>
     <div id="notifHint" style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;">📱 Na iPhonu skutečné upozornění mimo appku vyžaduje přidání na plochu (Sdílet → Přidat na plochu). Připomínka po cvičení ale funguje vždy uvnitř appky.</div>
+  </div>`;
+
+  // rozpoznávání jídla z fotky (Gemini)
+  const gk = geminiKey();
+  html += `<div class="card"><h2>📷 Kalorie z fotky (Gemini)</h2>
+    <div style="font-size:12px; color:var(--muted); margin-top:6px; line-height:1.5;">${gk
+      ? '✅ Klíč je uložený jen v tomto telefonu.'+(state.settings.geminiModel?' Model: <b style="color:var(--text);">'+state.settings.geminiModel+'</b>':'')
+      : 'Vlož API klíč z <b style="color:var(--text);">aistudio.google.com</b> (Get API key). Uloží se jen v tomto telefonu, nikam jinam.'}</div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <input id="gemKey" type="password" autocomplete="off" placeholder="${gk?'•••• klíč uložen ••••':'Vlož klíč (začíná AIza…)'}" style="flex:1; min-width:0; background:var(--bg2); border:1px solid var(--line); border-radius:11px; color:var(--text); font-size:15px; padding:11px;">
+      <button onclick="saveGeminiKey()" style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border:none; border-radius:11px; padding:0 16px; font-weight:700; cursor:pointer;">Uložit</button>
+    </div>
+    ${gk?`<div style="display:flex; gap:8px; margin-top:8px;">
+      <button onclick="testGeminiKey()" style="flex:1; background:var(--card2); border:1px solid var(--line); color:var(--text); border-radius:11px; padding:10px; font-weight:600; cursor:pointer;">🔌 Otestovat</button>
+      <button onclick="removeGeminiKey()" style="flex:1; background:var(--card2); border:1px solid var(--line); color:var(--red); border-radius:11px; padding:10px; font-weight:600; cursor:pointer;">Odebrat klíč</button>
+    </div>`:''}
+    <div id="gemStatus" style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;"></div>
+    <div style="font-size:11px; color:var(--muted); margin-top:8px; line-height:1.5; opacity:.85;">ℹ️ V bezplatné verzi může Google odeslané fotky použít ke zlepšování svých služeb. Klíč se nezahrnuje do zálohy dat.</div>
   </div>`;
 
   // záloha dat
@@ -2477,7 +2496,7 @@ function renderFood(){
     const mt = mitems.reduce((a,o)=>a+(o.x.k||0),0);
     lh += `<div class="card" style="padding:12px 16px;">
       <div style="display:flex; justify-content:space-between; font-weight:800; font-size:14px;"><span>${m}</span><span style="color:var(--accent);">${mt} kcal</span></div>
-      ${mitems.map(o=>`<div class="food-item"><div style="flex:1;">${o.x.n}</div><div style="color:var(--muted); font-size:13px;">${o.x.k} kcal</div><span onclick="delFood(${o.xi})" style="color:var(--red); cursor:pointer; font-weight:800; padding:0 4px;">✕</span></div>`).join('')}
+      ${mitems.map(o=>`<div class="food-item"><div style="flex:1;">${o.x.src==='foto'?'📷 ':''}${o.x.n}</div><div style="color:var(--muted); font-size:13px;">${o.x.k} kcal</div><span onclick="delFood(${o.xi})" style="color:var(--red); cursor:pointer; font-weight:800; padding:0 4px;">✕</span></div>`).join('')}
     </div>`;
   });
   renderPetMini();
@@ -3069,6 +3088,215 @@ function renderPetMini(){
   if(!state.pet){ el.innerHTML=''; return; }
   const sc = petScore(dateStr());
   el.innerHTML = `<span class="pet-mini" onclick="switchView('day')">${state.pet.animal} ${state.pet.name} ${PET_MOOD_EMOJI[petMood()]} <span style="color:var(--muted); font-weight:600;">${sc.d}/${sc.n}</span></span>`;
+}
+
+/* =========================================================
+   KALORIE Z FOTKY – Google Gemini API (volá se přímo z telefonu)
+   Klíč je v samostatném úložišti, aby se nedostal do zálohy dat.
+========================================================= */
+const GEM_KEY_STORE = 'petra_gemini_key';
+const GEM_API = 'https://generativelanguage.googleapis.com/v1beta/';
+let photoItems = null;
+let photoMeal = null;
+function geminiKey(){ try{ return localStorage.getItem(GEM_KEY_STORE) || ''; }catch(e){ return ''; } }
+function saveGeminiKey(){
+  const v = (document.getElementById('gemKey').value||'').trim();
+  if(!v){ toast('Vlož klíč 🙂'); return; }
+  try{ localStorage.setItem(GEM_KEY_STORE, v); }catch(e){}
+  state.settings.geminiModel = null; save();
+  renderPlan();
+  testGeminiKey();
+}
+function removeGeminiKey(){
+  if(!confirm('Odebrat Gemini klíč z tohoto telefonu?')) return;
+  try{ localStorage.removeItem(GEM_KEY_STORE); }catch(e){}
+  state.settings.geminiModel = null; save(); renderPlan();
+  toast('Klíč odebrán');
+}
+async function gemFetch(path, opts){
+  const r = await fetch(GEM_API+path, Object.assign({}, opts, {
+    headers: Object.assign({'x-goog-api-key': geminiKey()}, (opts&&opts.headers)||{})
+  }));
+  let body = null;
+  try{ body = await r.json(); }catch(e){}
+  if(!r.ok){
+    const msg = (body && body.error && body.error.message) || ('HTTP '+r.status);
+    const err = new Error(msg); err.status = r.status; err.reason = JSON.stringify(body||{});
+    throw err;
+  }
+  return body;
+}
+function gemErrText(e){
+  const s = e.status, m = (e.message||'')+(e.reason||'');
+  if(!navigator.onLine) return 'Jsi offline – připoj se k internetu a zkus to znovu.';
+  if(/API_KEY_INVALID|API key not valid/i.test(m)) return 'Klíč není platný. Zkontroluj ho v Nastavení (začíná „AIza").';
+  if(s===429) return 'Dnešní bezplatný limit je vyčerpaný. Zkus to později nebo zítra.';
+  if(s===403) return 'Klíč nemá povolený přístup ke Gemini API. Vytvoř nový v aistudio.google.com.';
+  if(s===400 && /location|region|country/i.test(m)) return 'Gemini API není z této oblasti dostupné.';
+  if(e instanceof TypeError) return 'Nepodařilo se spojit s Gemini – zkontroluj připojení.';
+  return 'Nepovedlo se: '+(e.message||'neznámá chyba');
+}
+// najde nejvhodnější model Flash, který umí obrázky (stabilní před preview, novější před starším)
+async function gemPickModel(){
+  const res = await gemFetch('models?pageSize=200', {method:'GET'});
+  const ok = (res.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent'))
+    .map(m=>m.name.replace(/^models\//,''))
+    .filter(n=>/flash/.test(n) && !/image|tts|audio|live|embed|thinking|exp/i.test(n));
+  if(!ok.length) throw Object.assign(new Error('Žádný vhodný model'), {status:404});
+  const ver = n => { const m = n.match(/(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
+  const score = n => (n==='gemini-flash-latest'?1000:0) + ver(n)*10 + (/preview/.test(n)?-5:0) + (/lite/.test(n)?-2:0);
+  ok.sort((a,b)=>score(b)-score(a));
+  return ok[0];
+}
+async function gemModel(){
+  if(state.settings.geminiModel) return state.settings.geminiModel;
+  const m = await gemPickModel();
+  state.settings.geminiModel = m; save();
+  return m;
+}
+async function testGeminiKey(){
+  const st = document.getElementById('gemStatus');
+  if(st) st.textContent = '⏳ Ověřuji klíč…';
+  try{
+    state.settings.geminiModel = null;
+    const m = await gemModel();
+    if(st) st.innerHTML = '✅ Funguje! Použiju model <b style="color:var(--text);">'+m+'</b>.';
+    toast('Klíč funguje ✅');
+  }catch(e){
+    if(st) st.textContent = '⚠️ '+gemErrText(e);
+  }
+}
+function photoFoodStart(){
+  if(!geminiKey()){
+    document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
+      <h3>📷 Kalorie z fotky</h3>
+      <div style="font-size:14px; line-height:1.6;">Pro rozpoznání jídla je potřeba jednou vložit <b>Gemini API klíč</b> do Nastavení. Je zdarma a uloží se jen v tomto telefonu.</div>
+      <div class="sheet-actions">
+        <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Později</button>
+        <button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="closeModal(); switchView('plan'); setTimeout(()=>{ const k=document.getElementById('gemKey'); if(k){ k.scrollIntoView({block:'center'}); k.focus(); } },120);">Do Nastavení</button>
+      </div></div></div>`;
+    return;
+  }
+  document.getElementById('foodPhoto').click();
+}
+// zmenší fotku na max 1024 px a vrátí base64 JPEG
+function resizeImage(file, max){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      const k = Math.min(1, max/Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('Fotku se nepodařilo načíst')); };
+    img.src = url;
+  });
+}
+const GEM_PROMPT = `Jsi výživový poradce. Na fotce je jídlo. Rozpoznej jednotlivé položky na talíři a odhadni jejich porci a kalorie.
+Odpověz POUZE jako JSON bez dalšího textu v tomto tvaru:
+{"items":[{"name":"název česky","portion":"odhad porce, např. 150 g","kcal":123}],"note":"krátká poznámka česky (max 1 věta)"}
+Pravidla: názvy česky, kcal jako celé číslo, odhaduj realisticky střední porci podle velikosti na fotce, započítej omáčky a oleje.
+Pokud na fotce není jídlo ani pití, vrať {"items":[],"note":"Na fotce nevidím jídlo."}`;
+async function photoFoodPicked(inp){
+  const file = inp.files && inp.files[0];
+  inp.value = '';
+  if(!file) return;
+  let dataUrl;
+  try{ dataUrl = await resizeImage(file, 1024); }catch(e){ toast('Fotku se nepodařilo načíst ⚠️'); return; }
+  photoMeal = mealSel===null ? mealByHour() : mealSel;
+  document.getElementById('modalRoot').innerHTML = `<div class="modal"><div class="sheet" style="text-align:center;">
+    <img src="${dataUrl}" style="max-width:100%; max-height:200px; border-radius:14px; display:block; margin:0 auto 14px;">
+    <div style="font-size:30px; display:inline-block; animation:acc-bob 1s ease-in-out infinite;">🔍</div>
+    <div style="font-weight:700; margin-top:6px;">Počítám kalorie…</div>
+    <div style="font-size:12px; color:var(--muted); margin-top:4px;">Obvykle pár sekund</div>
+  </div></div>`;
+  try{
+    const model = await gemModel();
+    const body = { contents:[{ parts:[
+        {inline_data:{mime_type:'image/jpeg', data:dataUrl.split(',')[1]}},
+        {text: GEM_PROMPT}
+      ]}],
+      generationConfig:{ temperature:0.2, responseMimeType:'application/json' } };
+    let res;
+    try{
+      res = await gemFetch('models/'+model+':generateContent', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    }catch(e){
+      if(e.status===404){ // model mezitím zmizel – vyber nový a zkus znovu
+        state.settings.geminiModel = null; save();
+        const m2 = await gemModel();
+        res = await gemFetch('models/'+m2+':generateContent', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      } else throw e;
+    }
+    const txt = ((res.candidates||[])[0]||{}).content ? res.candidates[0].content.parts.map(p=>p.text||'').join('') : '';
+    const parsed = parseGemJson(txt);
+    showPhotoResult(dataUrl, parsed);
+  }catch(e){
+    document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" style="text-align:center;">
+      <div class="finish-emoji">⚠️</div>
+      <div style="font-size:14px; line-height:1.6; margin-top:8px;">${gemErrText(e)}</div>
+      <div class="sheet-actions"><button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zavřít</button></div>
+    </div></div>`;
+  }
+}
+function parseGemJson(txt){
+  let t = (txt||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if(a>=0 && b>a) t = t.slice(a, b+1);
+  try{
+    const o = JSON.parse(t);
+    const items = (o.items||[]).map(x=>({name:String(x.name||'Jídlo').slice(0,60), portion:String(x.portion||'').slice(0,30), kcal:Math.max(0, Math.round(Number(x.kcal)||0))}));
+    return {items, note: String(o.note||'').slice(0,160)};
+  }catch(e){
+    return {items:[], note:'Odpověď se nepodařilo přečíst – zkus fotku znovu.'};
+  }
+}
+function showPhotoResult(dataUrl, r){
+  photoItems = r.items.map(x=>Object.assign({on:true}, x));
+  const rows = photoItems.map((x,i)=>`
+    <div class="food-item" style="gap:8px;">
+      <input type="checkbox" ${x.on?'checked':''} onchange="photoItems[${i}].on=this.checked; photoTotal()" style="width:20px; height:20px; accent-color:var(--accent);">
+      <div style="flex:1; min-width:0;"><div style="font-weight:700;">${x.name}</div>${x.portion?`<div style="font-size:11px; color:var(--muted);">${x.portion}</div>`:''}</div>
+      <input type="number" inputmode="numeric" value="${x.kcal}" oninput="photoItems[${i}].kcal=Math.max(0,parseInt(this.value)||0); photoTotal()" style="width:76px; background:var(--bg2); border:1px solid var(--line); border-radius:9px; color:var(--text); font-size:15px; padding:7px; text-align:center;">
+      <span style="font-size:12px; color:var(--muted);">kcal</span>
+    </div>`).join('');
+  document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
+    <img src="${dataUrl}" style="max-width:100%; max-height:170px; border-radius:14px; display:block; margin:0 auto 10px;">
+    <h3 style="margin:4px 0 6px;">🍽️ Co vidím na talíři</h3>
+    ${r.note?`<div style="font-size:12px; color:var(--muted); text-align:center; margin-bottom:6px;">${r.note}</div>`:''}
+    ${photoItems.length ? rows : '<div class="empty" style="padding:16px;">Na fotce se nepodařilo rozpoznat jídlo – zkus ho vyfotit zblízka a shora 📷</div>'}
+    ${photoItems.length ? `
+      <div style="display:flex; justify-content:space-between; font-weight:800; margin-top:10px;"><span>Celkem</span><span id="photoSum" style="color:var(--accent);"></span></div>
+      <div class="meal-chips" id="photoMeals"></div>
+      <div style="font-size:11px; color:var(--muted);">Je to odhad – hodnoty klidně uprav, než je zapíšeš.</div>` : ''}
+    <div class="sheet-actions">
+      <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zrušit</button>
+      ${photoItems.length?`<button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="photoSave()">Zapsat ✓</button>`:''}
+    </div>
+  </div></div>`;
+  if(photoItems.length){ photoTotal(); photoMealsRender(); }
+}
+function photoMealsRender(){
+  const el = document.getElementById('photoMeals');
+  if(el) el.innerHTML = MEALS.map((m,i)=>`<button class="${i===photoMeal?'on':''}" onclick="photoMeal=${i}; photoMealsRender()">${m}</button>`).join('');
+}
+function photoTotal(){
+  const el = document.getElementById('photoSum');
+  if(el) el.textContent = photoItems.filter(x=>x.on).reduce((a,x)=>a+x.kcal,0)+' kcal';
+}
+function photoSave(){
+  const sel = photoItems.filter(x=>x.on);
+  if(!sel.length){ toast('Vyber aspoň jednu položku'); return; }
+  if(!foodISO) foodISO = dateStr();
+  if(!state.food.log[foodISO]) state.food.log[foodISO] = [];
+  sel.forEach(x=>state.food.log[foodISO].push({n: x.name+(x.portion?' ('+x.portion+')':''), k:x.kcal, m:photoMeal, src:'foto'}));
+  mealSel = photoMeal;
+  save(); closeModal(); renderFood();
+  toast(`Zapsáno z fotky 📷 +${sel.reduce((a,x)=>a+x.kcal,0)} kcal`);
+  checkLevelUp();
 }
 
 /* INIT */
