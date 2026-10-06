@@ -437,7 +437,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '6. 10. 2026 · v15'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '6. 10. 2026 · v16'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -3271,7 +3271,7 @@ function gemErrText(e){
   const s = e.status, m = (e.message||'')+(e.reason||'');
   if(!navigator.onLine) return 'Jsi offline – připoj se k internetu a zkus to znovu.';
   if(/API_KEY_INVALID|API key not valid/i.test(m)) return 'Klíč není platný. Zkontroluj ho v Nastavení (začíná „AIza").';
-  if(gemTransient(e)) return 'Gemini je teď přetížené (velký zájem u Googlu) a nepomohly ani záložní modely. Zkus to prosím za chvilku znovu.';
+  if(gemTransient(e)) return 'Gemini je teď přetížené (velký zájem u Googlu). Zkus to prosím za chvilku znovu.';
   if(s===429) return 'Dnešní bezplatný limit je vyčerpaný u všech modelů. Zkus to později nebo zítra.';
   if(s===403) return 'Klíč nemá povolený přístup ke Gemini API. Vytvoř nový v aistudio.google.com.';
   if(s===400 && /location|region|country/i.test(m)) return 'Gemini API není z této oblasti dostupné.';
@@ -3306,8 +3306,9 @@ async function gemModel(){
   return m;
 }
 const gemSleep = ms => new Promise(r=>setTimeout(r, ms));
-// zavolá Gemini; při přetížení zkusí znovu a pak další modely (každý má vlastní kapacitu i limit)
-async function gemGenerate(body, onStatus){
+// zavolá Gemini; při přetížení zkusí znovu a pak další modely (každý má vlastní kapacitu i limit).
+// fast = je k dispozici záloha (GPT Luna) -> při prvním přetížení/limitu hned vzdát, ať se nečeká
+async function gemGenerate(body, onStatus, fast){
   const list = await gemRankModels();
   const pref = /preview/.test(state.settings.geminiModel||'') ? null : state.settings.geminiModel;
   const order = (pref && list.includes(pref) ? [pref] : []).concat(list.filter(m=>m!==pref)).slice(0, 4);
@@ -3322,6 +3323,7 @@ async function gemGenerate(body, onStatus){
         return res;
       }catch(e){
         lastErr = e;
+        if(fast && (e.status===429 || gemTransient(e))) throw e;   // záloha je po ruce – nečekat
         if(e.status===404 || e.status===429) break;       // model neexistuje / vyčerpaný limit -> další model
         if(gemTransient(e)){ if(attempt===0){ await gemSleep(1500); continue; } break; }
         throw e;                                           // neplatný klíč apod. – nemá smysl zkoušet dál
@@ -3514,7 +3516,7 @@ async function photoAnalyze(dataUrl){
           {text: GEM_PROMPT}
         ]}],
         generationConfig:{ temperature:0.2, responseMimeType:'application/json' } };
-      const res = await gemGenerate(body, setStatus);
+      const res = await gemGenerate(body, setStatus, !!openaiKey());
       const txt = ((res.candidates||[])[0]||{}).content ? res.candidates[0].content.parts.map(p=>p.text||'').join('') : '';
       showPhotoResult(dataUrl, parseGemJson(txt), 'Gemini · '+(state.settings.geminiModel||''));
       return;
