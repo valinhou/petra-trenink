@@ -437,7 +437,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '6. 10. 2026 · v14'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '6. 10. 2026 · v15'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -1373,6 +1373,7 @@ function renderPlan(){
 
   // rozpoznávání jídla z fotky (Gemini)
   const gk = geminiKey();
+  const ok = openaiKey();
   html += `<div class="card"><h2>📷 Kalorie z fotky (Gemini)</h2>
     <div style="font-size:12px; color:var(--muted); margin-top:6px; line-height:1.5;">${gk
       ? '✅ Klíč je uložený jen v tomto telefonu.'+(state.settings.geminiModel?' Model: <b style="color:var(--text);">'+state.settings.geminiModel+'</b>':'')
@@ -1387,6 +1388,21 @@ function renderPlan(){
     </div>`:''}
     <div id="gemStatus" style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;"></div>
     <div style="font-size:11px; color:var(--muted); margin-top:8px; line-height:1.5; opacity:.85;">ℹ️ V bezplatné verzi může Google odeslané fotky použít ke zlepšování svých služeb. Klíč se nezahrnuje do zálohy dat.</div>
+    <div style="border-top:1px solid var(--line); margin-top:14px; padding-top:14px;">
+      <div style="font-weight:800; font-size:14px;">🛟 Záloha: GPT Luna (OpenAI) <span style="font-weight:600; color:var(--muted); font-size:12px;">· nepovinné</span></div>
+      <div style="font-size:12px; color:var(--muted); margin-top:6px; line-height:1.5;">${ok
+        ? '✅ Záložní klíč je uložený jen v tomto telefonu.'+(state.settings.openaiModel?' Model: <b style="color:var(--text);">'+state.settings.openaiModel+'</b>':'')
+        : 'Použije se automaticky, jen když Gemini selže (přetížení, vyčerpaný limit). Klíč z <b style="color:var(--text);">platform.openai.com</b> → API keys. Stojí pár haléřů za fotku.'}</div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <input id="oaiKey" type="password" autocomplete="off" placeholder="${ok?'•••• klíč uložen ••••':'Vlož klíč (začíná sk-…)'}" style="flex:1; min-width:0; background:var(--bg2); border:1px solid var(--line); border-radius:11px; color:var(--text); font-size:15px; padding:11px;">
+        <button onclick="saveOpenAIKey()" style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff; border:none; border-radius:11px; padding:0 16px; font-weight:700; cursor:pointer;">Uložit</button>
+      </div>
+      ${ok?`<div style="display:flex; gap:8px; margin-top:8px;">
+        <button onclick="testOpenAIKey()" style="flex:1; background:var(--card2); border:1px solid var(--line); color:var(--text); border-radius:11px; padding:10px; font-weight:600; cursor:pointer;">🔌 Otestovat</button>
+        <button onclick="removeOpenAIKey()" style="flex:1; background:var(--card2); border:1px solid var(--line); color:var(--red); border-radius:11px; padding:10px; font-weight:600; cursor:pointer;">Odebrat klíč</button>
+      </div>`:''}
+      <div id="oaiStatus" style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5;"></div>
+    </div>
   </div>`;
 
   // záloha dat
@@ -3327,7 +3343,7 @@ async function testGeminiKey(){
   }
 }
 function photoFoodStart(){
-  if(!geminiKey()){
+  if(!geminiKey() && !openaiKey()){
     document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">
       <h3>📷 Kalorie z fotky</h3>
       <div style="font-size:14px; line-height:1.6;">Pro rozpoznání jídla je potřeba jednou vložit <b>Gemini API klíč</b> do Nastavení. Je zdarma a uloží se jen v tomto telefonu.</div>
@@ -3361,6 +3377,115 @@ Odpověz POUZE jako JSON bez dalšího textu v tomto tvaru:
 {"items":[{"name":"název česky","grams":150,"kcal":123}],"note":"krátká poznámka česky (max 1 věta)"}
 Pravidla: názvy česky, grams = odhadnutá hmotnost porce v gramech (u nápojů v ml) jako celé číslo, kcal = kalorie celé porce jako celé číslo. Odhaduj realisticky podle velikosti na fotce, započítej omáčky a oleje.
 Pokud na fotce není jídlo ani pití, vrať {"items":[],"note":"Na fotce nevidím jídlo."}`;
+/* =========================================================
+   ZÁLOHA: GPT Luna (OpenAI) – použije se, jen když Gemini selže
+   Klíč je v samostatném úložišti, do zálohy dat se nedostane.
+========================================================= */
+const OAI_KEY_STORE = 'petra_openai_key';
+const OAI_API = 'https://api.openai.com/v1/';
+const OAI_DEFAULT_MODEL = 'gpt-5.6-luna';
+let oaiModelCache = null;
+function openaiKey(){ try{ return localStorage.getItem(OAI_KEY_STORE) || ''; }catch(e){ return ''; } }
+function saveOpenAIKey(){
+  const v = (document.getElementById('oaiKey').value||'').trim();
+  if(!v){ toast('Vlož klíč 🙂'); return; }
+  try{ localStorage.setItem(OAI_KEY_STORE, v); }catch(e){}
+  oaiModelCache = null; state.settings.openaiModel = null; save();
+  renderPlan();
+  testOpenAIKey();
+}
+function removeOpenAIKey(){
+  if(!confirm('Odebrat záložní OpenAI klíč z tohoto telefonu?')) return;
+  try{ localStorage.removeItem(OAI_KEY_STORE); }catch(e){}
+  oaiModelCache = null; state.settings.openaiModel = null; save(); renderPlan();
+  toast('Záložní klíč odebrán');
+}
+async function oaiFetch(path, opts){
+  const r = await fetch(OAI_API+path, Object.assign({}, opts, {
+    headers: Object.assign({'Authorization': 'Bearer '+openaiKey()}, (opts&&opts.headers)||{})
+  }));
+  let body = null;
+  try{ body = await r.json(); }catch(e){}
+  if(!r.ok){
+    const er = (body && body.error) || {};
+    const err = new Error(er.message || ('HTTP '+r.status));
+    err.status = r.status; err.code = er.code || ''; err.param = er.param || '';
+    throw err;
+  }
+  return body;
+}
+// nejnovější dostupná Luna (např. gpt-5.6-luna); když seznam nejde načíst, použije výchozí
+async function oaiModel(){
+  if(oaiModelCache) return oaiModelCache;
+  if(state.settings.openaiModel){ oaiModelCache = state.settings.openaiModel; return oaiModelCache; }
+  let pick = OAI_DEFAULT_MODEL;
+  try{
+    const res = await oaiFetch('models', {method:'GET'});
+    const ids = (res.data||[]).map(m=>m.id).filter(id=>/luna/i.test(id) && !/audio|realtime|search|transcribe|tts|image/i.test(id));
+    const ver = id => { const m = id.match(/gpt-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
+    ids.sort((a,b)=> (ver(b)-ver(a)) || ((/\d{4}-\d{2}-\d{2}/.test(a)?1:0) - (/\d{4}-\d{2}-\d{2}/.test(b)?1:0)));
+    if(ids.length) pick = ids[0];
+  }catch(e){
+    if(e.status===401) throw e; // neplatný klíč hlásíme hned
+  }
+  oaiModelCache = pick; state.settings.openaiModel = pick; save();
+  return pick;
+}
+function oaiErrText(e){
+  const s = e.status, m = (e.message||'')+' '+(e.code||'');
+  if(!navigator.onLine) return 'Jsi offline – připoj se k internetu a zkus to znovu.';
+  if(s===401) return 'Záložní OpenAI klíč není platný. Zkontroluj ho v Nastavení (začíná „sk-").';
+  if(/insufficient_quota|billing|quota/i.test(m)) return 'Na OpenAI účtu došel kredit nebo je vyčerpaný limit útraty.';
+  if(s===429) return 'OpenAI má teď moc požadavků – zkus to za chvilku.';
+  if(s>=500) return 'OpenAI je teď nedostupné – zkus to za chvilku.';
+  if(e instanceof TypeError) return 'Nepodařilo se spojit s OpenAI – zkontroluj připojení.';
+  return 'OpenAI: '+(e.message||'neznámá chyba');
+}
+async function testOpenAIKey(){
+  const st = document.getElementById('oaiStatus');
+  if(st) st.textContent = '⏳ Ověřuji klíč…';
+  try{
+    oaiModelCache = null; state.settings.openaiModel = null;
+    const res = await oaiFetch('models', {method:'GET'}); // ověří klíč
+    const m = await oaiModel();
+    if(st) st.innerHTML = '✅ Funguje! Záloha použije model <b style="color:var(--text);">'+m+'</b>.';
+    toast('Záložní klíč funguje ✅');
+  }catch(e){
+    if(st) st.textContent = '⚠️ '+oaiErrText(e);
+  }
+}
+// rozpoznání jídla přes GPT Luna – stejné zadání i formát výsledku jako u Gemini
+async function oaiGenerate(dataUrl){
+  const model = await oaiModel();
+  const body = {
+    model,
+    messages:[{ role:'user', content:[
+      {type:'text', text: GEM_PROMPT},
+      {type:'image_url', image_url:{url: dataUrl}}
+    ]}],
+    response_format:{type:'json_object'},
+    reasoning_effort:'low',
+    max_completion_tokens: 2000
+  };
+  let res;
+  try{
+    res = await oaiFetch('chat/completions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  }catch(e){
+    // starší/jiný model nemusí znát reasoning_effort -> zkus bez něj
+    if(e.status===400 && /reasoning_effort/i.test((e.message||'')+e.param)){
+      delete body.reasoning_effort;
+      res = await oaiFetch('chat/completions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    }
+    else if(e.status===404 && model!==OAI_DEFAULT_MODEL){
+      oaiModelCache = OAI_DEFAULT_MODEL; state.settings.openaiModel = OAI_DEFAULT_MODEL; save();
+      body.model = OAI_DEFAULT_MODEL;
+      res = await oaiFetch('chat/completions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    }
+    else throw e;
+  }
+  const txt = (((res.choices||[])[0]||{}).message||{}).content || '';
+  return {text: typeof txt==='string' ? txt : JSON.stringify(txt), model: body.model};
+}
 let lastPhotoUrl = null;
 async function photoFoodPicked(inp){
   const file = inp.files && inp.files[0];
@@ -3380,26 +3505,45 @@ async function photoAnalyze(dataUrl){
     <div id="photoStatus" style="font-size:12px; color:var(--muted); margin-top:4px;">Obvykle pár sekund</div>
   </div></div>`;
   const setStatus = t => { const el = document.getElementById('photoStatus'); if(el && t) el.textContent = t; };
-  try{
-    const body = { contents:[{ parts:[
-        {inline_data:{mime_type:'image/jpeg', data:dataUrl.split(',')[1]}},
-        {text: GEM_PROMPT}
-      ]}],
-      generationConfig:{ temperature:0.2, responseMimeType:'application/json' } };
-    const res = await gemGenerate(body, setStatus);
-    const txt = ((res.candidates||[])[0]||{}).content ? res.candidates[0].content.parts.map(p=>p.text||'').join('') : '';
-    showPhotoResult(dataUrl, parseGemJson(txt));
-  }catch(e){
-    const retry = gemTransient(e) || e.status===429 || e instanceof TypeError;
-    document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" style="text-align:center;">
-      <div class="finish-emoji">⚠️</div>
-      <div style="font-size:14px; line-height:1.6; margin-top:8px;">${gemErrText(e)}</div>
-      <div class="sheet-actions">
-        <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zavřít</button>
-        ${retry?'<button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="photoAnalyze(lastPhotoUrl)">Zkusit znovu 🔄</button>':''}
-      </div>
-    </div></div>`;
+  let gemErr = null, oaiErr = null;
+  // 1) hlavní: Gemini (zdarma)
+  if(geminiKey()){
+    try{
+      const body = { contents:[{ parts:[
+          {inline_data:{mime_type:'image/jpeg', data:dataUrl.split(',')[1]}},
+          {text: GEM_PROMPT}
+        ]}],
+        generationConfig:{ temperature:0.2, responseMimeType:'application/json' } };
+      const res = await gemGenerate(body, setStatus);
+      const txt = ((res.candidates||[])[0]||{}).content ? res.candidates[0].content.parts.map(p=>p.text||'').join('') : '';
+      showPhotoResult(dataUrl, parseGemJson(txt), 'Gemini · '+(state.settings.geminiModel||''));
+      return;
+    }catch(e){ gemErr = e; }
   }
+  // 2) záloha: GPT Luna (OpenAI)
+  if(openaiKey()){
+    setStatus(geminiKey() ? 'Gemini nejde – zkouším záložní GPT Luna…' : 'Počítám přes GPT Luna…');
+    try{
+      const r = await oaiGenerate(dataUrl);
+      showPhotoResult(dataUrl, parseGemJson(r.text), 'GPT Luna · '+r.model+(geminiKey()?' (záloha)':''));
+      return;
+    }catch(e){ oaiErr = e; }
+  }
+  // obě cesty selhaly
+  const msgs = [];
+  if(gemErr) msgs.push(gemErrText(gemErr));
+  if(oaiErr) msgs.push(oaiErrText(oaiErr));
+  if(gemErr && !openaiKey()) msgs.push('💡 Tip: v Nastavení můžeš přidat záložní GPT Luna – použije se, když je Gemini přetížené.');
+  const retry = (gemErr && (gemTransient(gemErr) || gemErr.status===429 || gemErr instanceof TypeError)) ||
+                (oaiErr && (oaiErr.status===429 || oaiErr.status>=500 || oaiErr instanceof TypeError));
+  document.getElementById('modalRoot').innerHTML = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" style="text-align:center;">
+    <div class="finish-emoji">⚠️</div>
+    ${msgs.map(m=>`<div style="font-size:14px; line-height:1.6; margin-top:8px;">${m}</div>`).join('')}
+    <div class="sheet-actions">
+      <button style="background:var(--card); color:var(--text); border:1px solid var(--line);" onclick="closeModal()">Zavřít</button>
+      ${retry?'<button style="background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;" onclick="photoAnalyze(lastPhotoUrl)">Zkusit znovu 🔄</button>':''}
+    </div>
+  </div></div>`;
 }
 function parseGemJson(txt){
   let t = (txt||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
@@ -3418,7 +3562,7 @@ function parseGemJson(txt){
     return {items:[], note:'Odpověď se nepodařilo přečíst – zkus fotku znovu.'};
   }
 }
-function showPhotoResult(dataUrl, r){
+function showPhotoResult(dataUrl, r, src){
   photoItems = r.items.map(x=>Object.assign({on:true}, x));
   const rows = photoItems.map((x,i)=>`
     <div class="food-item" style="gap:8px;">
@@ -3433,6 +3577,7 @@ function showPhotoResult(dataUrl, r){
     <img src="${dataUrl}" style="max-width:100%; max-height:170px; border-radius:14px; display:block; margin:0 auto 10px;">
     <h3 style="margin:4px 0 6px;">🍽️ Co vidím na talíři</h3>
     ${r.note?`<div style="font-size:12px; color:var(--muted); text-align:center; margin-bottom:6px;">${r.note}</div>`:''}
+    ${src?`<div style="font-size:10px; color:var(--muted); text-align:center; opacity:.7; margin-bottom:6px;">odhad: ${src}</div>`:''}
     ${photoItems.length ? rows : '<div class="empty" style="padding:16px;">Na fotce se nepodařilo rozpoznat jídlo – zkus ho vyfotit zblízka a shora 📷</div>'}
     ${photoItems.length ? `
       <div style="display:flex; justify-content:space-between; font-weight:800; margin-top:10px;"><span>Celkem</span><span id="photoSum" style="color:var(--accent);"></span></div>
