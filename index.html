@@ -437,7 +437,7 @@
    DATA
 ========================================================= */
 const STORE_KEY = 'petra_trenink_v1';
-const APP_VERSION = '6. 10. 2026 · v16'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
+const APP_VERSION = '8. 10. 2026 · v17'; // zobrazuje se pod nadpisem – podle toho poznáš, že máš aktuální verzi
 
 // Šablony tréninků – den je defaultně prázdný, šablonu si vybereš až na vyžádání.
 const DAY_TEMPLATES = [
@@ -3385,7 +3385,9 @@ Pokud na fotce není jídlo ani pití, vrať {"items":[],"note":"Na fotce nevid�
 ========================================================= */
 const OAI_KEY_STORE = 'petra_openai_key';
 const OAI_API = 'https://api.openai.com/v1/';
-const OAI_DEFAULT_MODEL = 'gpt-5.6-luna';
+const OAI_DEFAULT_MODEL = 'gpt-6-luna';     // chytřejší a ~10× levnější než 5.6 Luna
+const OAI_FALLBACK_MODEL = 'gpt-5.6-luna';  // kdyby GPT-6 Luna na účtu nebyla dostupná
+const oaiVer = id => { const m = String(id||'').match(/gpt-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
 let oaiModelCache = null;
 function openaiKey(){ try{ return localStorage.getItem(OAI_KEY_STORE) || ''; }catch(e){ return ''; } }
 function saveOpenAIKey(){
@@ -3419,14 +3421,16 @@ async function oaiFetch(path, opts){
 // nejnovější dostupná Luna (např. gpt-5.6-luna); když seznam nejde načíst, použije výchozí
 async function oaiModel(){
   if(oaiModelCache) return oaiModelCache;
+  // dřív zapamatovaný starší model (např. gpt-5.6-luna) zahodit, ať se přejde na novější výchozí
+  if(state.settings.openaiModel && oaiVer(state.settings.openaiModel) < oaiVer(OAI_DEFAULT_MODEL)){ state.settings.openaiModel = null; save(); }
   if(state.settings.openaiModel){ oaiModelCache = state.settings.openaiModel; return oaiModelCache; }
   let pick = OAI_DEFAULT_MODEL;
   try{
     const res = await oaiFetch('models', {method:'GET'});
     const ids = (res.data||[]).map(m=>m.id).filter(id=>/luna/i.test(id) && !/audio|realtime|search|transcribe|tts|image/i.test(id));
-    const ver = id => { const m = id.match(/gpt-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
-    ids.sort((a,b)=> (ver(b)-ver(a)) || ((/\d{4}-\d{2}-\d{2}/.test(a)?1:0) - (/\d{4}-\d{2}-\d{2}/.test(b)?1:0)));
-    if(ids.length) pick = ids[0];
+    ids.sort((a,b)=> (oaiVer(b)-oaiVer(a)) || ((/\d{4}-\d{2}-\d{2}/.test(a)?1:0) - (/\d{4}-\d{2}-\d{2}/.test(b)?1:0)));
+    if(ids.includes(OAI_DEFAULT_MODEL)) pick = OAI_DEFAULT_MODEL;   // přednostně GPT-6 Luna
+    else if(ids.length) pick = ids[0];
   }catch(e){
     if(e.status===401) throw e; // neplatný klíč hlásíme hned
   }
@@ -3478,9 +3482,9 @@ async function oaiGenerate(dataUrl){
       delete body.reasoning_effort;
       res = await oaiFetch('chat/completions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     }
-    else if(e.status===404 && model!==OAI_DEFAULT_MODEL){
-      oaiModelCache = OAI_DEFAULT_MODEL; state.settings.openaiModel = OAI_DEFAULT_MODEL; save();
-      body.model = OAI_DEFAULT_MODEL;
+    else if(e.status===404 && model!==OAI_FALLBACK_MODEL){   // model na účtu není -> starší Luna
+      oaiModelCache = OAI_FALLBACK_MODEL; state.settings.openaiModel = OAI_FALLBACK_MODEL; save();
+      body.model = OAI_FALLBACK_MODEL;
       res = await oaiFetch('chat/completions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     }
     else throw e;
